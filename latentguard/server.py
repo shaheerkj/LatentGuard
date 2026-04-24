@@ -134,7 +134,7 @@ class LatentGuardHandler(BaseHTTPRequestHandler):
   </style>
 </head>
 <body>
-  <h1>LatentGuard Frontend Console</h1>
+  <h1>LatentGuard Console</h1>
   <div class="sub">Interactively inspect traffic, tune consensus, manage rules, and monitor logs.</div>
 
   <div class="grid">
@@ -241,6 +241,13 @@ class LatentGuardHandler(BaseHTTPRequestHandler):
       statusEl.textContent = message;
     }
 
+    function errorText(err) {
+      if (err && typeof err === "object" && "message" in err) {
+        return String(err.message);
+      }
+      return String(err);
+    }
+
     function setJson(elId, obj) {
       document.getElementById(elId).textContent = JSON.stringify(obj, null, 2);
     }
@@ -285,7 +292,8 @@ class LatentGuardHandler(BaseHTTPRequestHandler):
     }
 
     async function refreshLogs() {
-      const limit = Number(document.getElementById("logs-limit").value || 25);
+      const rawLimit = Number(document.getElementById("logs-limit").value);
+      const limit = Number.isFinite(rawLimit) && rawLimit > 0 ? Math.floor(rawLimit) : 25;
       const action = document.getElementById("logs-action").value;
       const qs = new URLSearchParams({ limit: String(limit) });
       if (action) qs.set("action", action);
@@ -319,7 +327,14 @@ class LatentGuardHandler(BaseHTTPRequestHandler):
       ];
       for (const [apiName, inputId] of fields) {
         const v = document.getElementById(inputId).value;
-        if (v !== "") payload[apiName] = Number(v);
+        if (v !== "") {
+          const n = Number(v);
+          if (!Number.isFinite(n)) {
+            setJson("config-out", { error: "Invalid numeric value", field: apiName, value: v });
+            return;
+          }
+          payload[apiName] = n;
+        }
       }
       const out = await api("/config", "POST", payload);
       setJson("config-out", out);
@@ -365,18 +380,18 @@ class LatentGuardHandler(BaseHTTPRequestHandler):
       await refreshRulesQueue();
     }
 
-    document.getElementById("refresh-dashboard").addEventListener("click", () => refreshDashboard().catch(e => setStatus(String(e))));
-    document.getElementById("refresh-logs").addEventListener("click", () => refreshLogs().catch(e => setStatus(String(e))));
-    document.getElementById("refresh-rules").addEventListener("click", () => refreshRulesQueue().catch(e => setStatus(String(e))));
-    document.getElementById("inspect-btn").addEventListener("click", () => inspectRequest().catch(e => setStatus(String(e))));
-    document.getElementById("load-config").addEventListener("click", () => loadConfig().catch(e => setStatus(String(e))));
-    document.getElementById("save-config").addEventListener("click", () => saveConfig().catch(e => setStatus(String(e))));
-    document.getElementById("set-safe-mode").addEventListener("click", () => setSafeMode().catch(e => setStatus(String(e))));
-    document.getElementById("fetch-logs").addEventListener("click", () => refreshLogs().catch(e => setStatus(String(e))));
-    document.getElementById("generate-rules").addEventListener("click", () => generateRules().catch(e => setStatus(String(e))));
-    document.getElementById("review-rule").addEventListener("click", () => reviewRule().catch(e => setStatus(String(e))));
+    document.getElementById("refresh-dashboard").addEventListener("click", () => refreshDashboard().catch(e => setStatus(errorText(e))));
+    document.getElementById("refresh-logs").addEventListener("click", () => refreshLogs().catch(e => setStatus(errorText(e))));
+    document.getElementById("refresh-rules").addEventListener("click", () => refreshRulesQueue().catch(e => setStatus(errorText(e))));
+    document.getElementById("inspect-btn").addEventListener("click", () => inspectRequest().catch(e => setStatus(errorText(e))));
+    document.getElementById("load-config").addEventListener("click", () => loadConfig().catch(e => setStatus(errorText(e))));
+    document.getElementById("save-config").addEventListener("click", () => saveConfig().catch(e => setStatus(errorText(e))));
+    document.getElementById("set-safe-mode").addEventListener("click", () => setSafeMode().catch(e => setStatus(errorText(e))));
+    document.getElementById("fetch-logs").addEventListener("click", () => refreshLogs().catch(e => setStatus(errorText(e))));
+    document.getElementById("generate-rules").addEventListener("click", () => generateRules().catch(e => setStatus(errorText(e))));
+    document.getElementById("review-rule").addEventListener("click", () => reviewRule().catch(e => setStatus(errorText(e))));
 
-    Promise.all([refreshDashboard(), refreshLogs(), refreshRulesQueue(), loadConfig()]).catch(e => setStatus(String(e)));
+    Promise.all([refreshDashboard(), refreshLogs(), refreshRulesQueue(), loadConfig()]).catch(e => setStatus(errorText(e)));
   </script>
 </body>
 </html>
