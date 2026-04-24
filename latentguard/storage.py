@@ -17,6 +17,7 @@ class AuditStore:
         self.logs_path = self.base_path / "logs.jsonl"
         self.rules_path = self.base_path / "rules.json"
         self._lock = threading.Lock()
+        self._metrics_cache: dict[str, Any] | None = None
         if not self.rules_path.exists():
             self.rules_path.write_text("[]", encoding="utf-8")
 
@@ -24,31 +25,24 @@ class AuditStore:
         with self._lock:
             with self.logs_path.open("a", encoding="utf-8") as f:
                 f.write(json.dumps(entry, ensure_ascii=False) + "\n")
+            self._update_metrics_cache(entry)
 
-    def list_logs(self, limit: int = 100, action: str | None = None) -> list[dict[str, Any]]:
-        if not self.logs_path.exists():
-            return []
+    def _update_metrics_cache(self, entry: dict[str, Any]) -> None:
+        if self._metrics_cache is None:
+            self._metrics_cache = self._compute_metrics_from_file()
+        self._metrics_cache["total_requests"] += 1
+        action = entry.get("decision", {}).get("action")
+        if action == "block":
+            self._metrics_cache["blocked"] += 1
+        elif action == "allow":
+            self._metrics_cache["allowed"] += 1
+        elif action == "review":
+            self._metrics_cache["review"] += 1
+        total = self._metrics_cache["total_requests"]
+        blocked = self._metrics_cache["blocked"]
+        self._metrics_cache["block_rate"] = round((blocked / total), 4) if total else 0.0
 
-        if limit <= 0:
-            return []
-
-        rows: deque[dict[str, Any]] = deque(maxlen=limit)
-        with self.logs_path.open("r", encoding="utf-8") as f:
-            for line in f:
-                line = line.strip()
-                if not line:
-                    continue
-                try:
-                    row = json.loads(line)
-                except json.JSONDecodeError:
-                    continue
-                if action and row.get("decision", {}).get("action") != action:
-                    continue
-                rows.append(row)
-
-        return list(reversed(rows))
-
-    def metrics(self) -> dict[str, Any]:
+    def _compute_metrics_from_file(self) -> dict[str, Any]:
         if not self.logs_path.exists():
             return {
                 "total_requests": 0,
@@ -86,6 +80,35 @@ class AuditStore:
             "review": review,
             "block_rate": round((block / total), 4) if total else 0.0,
         }
+
+    def list_logs(self, limit: int = 100, action: str | None = None) -> list[dict[str, Any]]:
+        if not self.logs_path.exists():
+            return []
+
+        if limit <= 0:
+            return []
+
+        rows: deque[dict[str, Any]] = deque(maxlen=limit)
+        with self.logs_path.open("r", encoding="utf-8") as f:
+            for line in f:
+                line = line.strip()
+                if not line:
+                    continue
+                try:
+                    row = json.loads(line)
+                except json.JSONDecodeError:
+                    continue
+                if action and row.get("decision", {}).get("action") != action:
+                    continue
+                rows.append(row)
+
+        return list(reversed(rows))
+
+    def metrics(self) -> dict[str, Any]:
+        with self._lock:
+            if self._metrics_cache is None:
+                self._metrics_cache = self._compute_metrics_from_file()
+            return dict(self._metrics_cache)
 
     def _read_rules(self) -> list[dict[str, Any]]:
         try:

@@ -33,7 +33,8 @@ class RuleGenerator:
     @staticmethod
     def _modsec_numeric_id(hash_hex: str, seen_ids: set[int]) -> int:
         # Build ID from the full hash to reduce collision probability.
-        base = 1_000_000_000 + (int(hash_hex, 16) % 1_000_000_000)
+        # Use a stable prefix of the hash for efficient numeric conversion.
+        base = 1_000_000_000 + (int(hash_hex[:16], 16) % 1_000_000_000)
         max_space = 1_000_000_000
         if len(seen_ids) >= max_space:
             raise ValueError("No available ModSecurity rule IDs in configured range")
