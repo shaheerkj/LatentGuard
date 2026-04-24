@@ -4,12 +4,27 @@ from http.server import BaseHTTPRequestHandler, HTTPServer
 from urllib.parse import parse_qs, urlparse
 import json
 import os
+from threading import Lock
 
 from .pipeline import LatentGuardPipeline
 
+_PIPELINE: LatentGuardPipeline | None = None
+_PIPELINE_LOCK = Lock()
+
+
+def get_pipeline() -> LatentGuardPipeline:
+    global _PIPELINE
+    if _PIPELINE is None:
+        with _PIPELINE_LOCK:
+            if _PIPELINE is None:
+                _PIPELINE = LatentGuardPipeline(data_path=os.getenv("LATENTGUARD_DATA_PATH", "./data"))
+    return _PIPELINE
+
 
 class LatentGuardHandler(BaseHTTPRequestHandler):
-    pipeline = LatentGuardPipeline(data_path=os.getenv("LATENTGUARD_DATA_PATH", "./data"))
+    @property
+    def pipeline(self) -> LatentGuardPipeline:
+        return get_pipeline()
 
     def _send(self, status: int, payload: dict | str, content_type: str = "application/json") -> None:
         self.send_response(status)

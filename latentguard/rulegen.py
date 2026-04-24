@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import re
 from collections import Counter
-from hashlib import sha1
+from hashlib import sha256
 
 from .contracts import RuleDraft
 
@@ -33,11 +33,11 @@ class RuleGenerator:
     def generate(self, patterns: list[tuple[str, float]]) -> list[RuleDraft]:
         drafts: list[RuleDraft] = []
         for token, confidence in patterns:
-            rid = sha1(f"{token}:{confidence}".encode("utf-8")).hexdigest()[:12]
+            rid = sha256(f"{token}:{confidence}".encode("utf-8")).hexdigest()[:16]
             escaped = re.escape(token)
             rule_text = (
                 f'SecRule REQUEST_URI|ARGS|REQUEST_BODY "@rx {escaped}" '
-                f'"id:1{rid[:5]},phase:2,deny,status:403,msg:\'AI pattern: {token}\'"'
+                f'"id:{int(rid[:10], 16) % 1000000000 + 1000000000},phase:2,deny,status:403,msg:\'AI pattern: {token}\'"'
             )
             drafts.append(
                 RuleDraft(

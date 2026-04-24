@@ -39,6 +39,33 @@ class PipelineTests(unittest.TestCase):
         self.assertTrue(result["decision"]["fallback_used"])
         self.assertTrue(result["safe_mode"])
 
+    def test_ml_recovery_after_safe_mode_disabled(self) -> None:
+        self.pipeline.ml.set_fail_mode(True)
+        _ = self.pipeline.process_request(
+            {
+                "method": "GET",
+                "path": "/products",
+                "query": "page=1",
+                "headers": {"Host": "example.com"},
+                "source_ip": "198.51.100.30",
+            }
+        )
+        self.assertTrue(self.pipeline.safe_mode)
+
+        self.pipeline.safe_mode = False
+        self.pipeline.ml.set_fail_mode(False)
+        recovered = self.pipeline.process_request(
+            {
+                "method": "GET",
+                "path": "/products",
+                "query": "page=2",
+                "headers": {"Host": "example.com"},
+                "source_ip": "198.51.100.31",
+            }
+        )
+        self.assertFalse(recovered["decision"]["fallback_used"])
+        self.assertFalse(recovered["safe_mode"])
+
     def test_generates_rules_from_blocked_logs(self) -> None:
         self.pipeline.process_request(
             {

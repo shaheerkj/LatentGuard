@@ -4,6 +4,7 @@ from dataclasses import asdict
 from pathlib import Path
 import json
 import threading
+from collections import deque
 from typing import Any
 
 from .contracts import RuleDraft
@@ -28,7 +29,10 @@ class AuditStore:
         if not self.logs_path.exists():
             return []
 
-        rows: list[dict[str, Any]] = []
+        if limit <= 0:
+            return []
+
+        rows: deque[dict[str, Any]] = deque(maxlen=limit)
         with self.logs_path.open("r", encoding="utf-8") as f:
             for line in f:
                 line = line.strip()
@@ -40,16 +44,41 @@ class AuditStore:
                     continue
                 if action and row.get("decision", {}).get("action") != action:
                     continue
-                rows.append(row)
+                rows.appendleft(row)
 
-        return rows[-limit:][::-1]
+        return list(rows)
 
     def metrics(self) -> dict[str, Any]:
-        logs = self.list_logs(limit=100000)
-        total = len(logs)
-        block = sum(1 for x in logs if x.get("decision", {}).get("action") == "block")
-        allow = sum(1 for x in logs if x.get("decision", {}).get("action") == "allow")
-        review = sum(1 for x in logs if x.get("decision", {}).get("action") == "review")
+        if not self.logs_path.exists():
+            return {
+                "total_requests": 0,
+                "blocked": 0,
+                "allowed": 0,
+                "review": 0,
+                "block_rate": 0.0,
+            }
+
+        total = 0
+        block = 0
+        allow = 0
+        review = 0
+        with self.logs_path.open("r", encoding="utf-8") as f:
+            for line in f:
+                line = line.strip()
+                if not line:
+                    continue
+                try:
+                    row = json.loads(line)
+                except json.JSONDecodeError:
+                    continue
+                total += 1
+                action = row.get("decision", {}).get("action")
+                if action == "block":
+                    block += 1
+                elif action == "allow":
+                    allow += 1
+                elif action == "review":
+                    review += 1
         return {
             "total_requests": total,
             "blocked": block,
