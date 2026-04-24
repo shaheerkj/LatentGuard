@@ -44,9 +44,9 @@ class AuditStore:
                     continue
                 if action and row.get("decision", {}).get("action") != action:
                     continue
-                rows.appendleft(row)
+                rows.append(row)
 
-        return list(rows)
+        return list(rows)[::-1]
 
     def metrics(self) -> dict[str, Any]:
         if not self.logs_path.exists():

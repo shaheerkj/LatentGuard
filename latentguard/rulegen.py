@@ -30,14 +30,28 @@ class PatternMiner:
 
 
 class RuleGenerator:
+    @staticmethod
+    def _modsec_numeric_id(rule_hex: str, seen_ids: set[int]) -> int:
+        # Build ID from the full hash to reduce collision probability.
+        base = 1_000_000_000 + (int(rule_hex, 16) % 1_000_000_000)
+        candidate = base
+        while candidate in seen_ids:
+            candidate += 1
+            if candidate > 1_999_999_999:
+                candidate = 1_000_000_000
+        seen_ids.add(candidate)
+        return candidate
+
     def generate(self, patterns: list[tuple[str, float]]) -> list[RuleDraft]:
         drafts: list[RuleDraft] = []
+        seen_ids: set[int] = set()
         for token, confidence in patterns:
-            rid = sha256(f"{token}:{confidence}".encode("utf-8")).hexdigest()[:16]
+            rid = sha256(f"{token}:{confidence}".encode("utf-8")).hexdigest()[:32]
+            modsec_id = self._modsec_numeric_id(rid, seen_ids)
             escaped = re.escape(token)
             rule_text = (
                 f'SecRule REQUEST_URI|ARGS|REQUEST_BODY "@rx {escaped}" '
-                f'"id:{int(rid[:10], 16) % 1000000000 + 1000000000},phase:2,deny,status:403,msg:\'AI pattern: {token}\'"'
+                f'"id:{modsec_id},phase:2,deny,status:403,msg:\'AI pattern: {token}\'"'
             )
             drafts.append(
                 RuleDraft(
