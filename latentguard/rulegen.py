@@ -31,11 +31,18 @@ class PatternMiner:
 
 class RuleGenerator:
     @staticmethod
-    def _modsec_numeric_id(rule_hex: str, seen_ids: set[int]) -> int:
+    def _modsec_numeric_id(hash_hex: str, seen_ids: set[int]) -> int:
         # Build ID from the full hash to reduce collision probability.
-        base = 1_000_000_000 + (int(rule_hex, 16) % 1_000_000_000)
+        base = 1_000_000_000 + (int(hash_hex, 16) % 1_000_000_000)
+        max_space = 1_000_000_000
+        if len(seen_ids) >= max_space:
+            raise ValueError("No available ModSecurity rule IDs in configured range")
         candidate = base
+        attempts = 0
         while candidate in seen_ids:
+            attempts += 1
+            if attempts > max_space:
+                raise ValueError("Exceeded retry attempts while generating unique ModSecurity rule ID")
             candidate += 1
             if candidate > 1_999_999_999:
                 candidate = 1_000_000_000

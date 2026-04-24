@@ -68,7 +68,10 @@ fetch('/dashboard').then(r=>r.json()).then(d=>{document.getElementById('out').te
 
         if parsed.path == "/logs":
             q = parse_qs(parsed.query)
-            limit = int(q.get("limit", ["100"])[0])
+            try:
+                limit = int(q.get("limit", ["100"])[0])
+            except (TypeError, ValueError):
+                return self._send(400, {"error": "invalid limit parameter"})
             action = q.get("action", [None])[0]
             return self._send(200, {"logs": self.pipeline.store.list_logs(limit=limit, action=action)})
 
@@ -96,9 +99,12 @@ fetch('/dashboard').then(r=>r.json()).then(d=>{document.getElementById('out').te
 
         if parsed.path == "/rules/review":
             body = self._json_body()
+            action = body.get("action", "reject")
+            if action not in {"approve", "reject", "deploy"}:
+                return self._send(400, {"error": "invalid review action"})
             result = self.pipeline.store.review_rule(
                 rule_id=body.get("rule_id", ""),
-                action=body.get("action", "reject"),
+                action=action,
                 notes=body.get("notes", ""),
             )
             if not result:

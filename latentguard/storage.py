@@ -46,7 +46,7 @@ class AuditStore:
                     continue
                 rows.append(row)
 
-        return list(rows)[::-1]
+        return list(reversed(rows))
 
     def metrics(self) -> dict[str, Any]:
         if not self.logs_path.exists():
@@ -112,12 +112,12 @@ class AuditStore:
 
     def review_rule(self, rule_id: str, action: str, notes: str = "") -> dict[str, Any] | None:
         with self._lock:
+            if action not in {"approve", "reject", "deploy"}:
+                return None
             rows = self._read_rules()
             target = None
             for r in rows:
                 if r.get("rule_id") == rule_id:
-                    if action not in {"approve", "reject", "deploy"}:
-                        action = "reject"
                     if action == "approve":
                         r["status"] = "approved"
                     elif action == "deploy":
