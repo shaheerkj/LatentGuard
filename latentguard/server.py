@@ -3,12 +3,13 @@ from __future__ import annotations
 from http.server import BaseHTTPRequestHandler, HTTPServer
 from urllib.parse import parse_qs, urlparse
 import json
+import os
 
 from .pipeline import LatentGuardPipeline
 
 
 class LatentGuardHandler(BaseHTTPRequestHandler):
-    pipeline = LatentGuardPipeline(data_path="/home/runner/work/LatentGuard/LatentGuard/data")
+    pipeline = LatentGuardPipeline(data_path=os.getenv("LATENTGUARD_DATA_PATH", "./data"))
 
     def _send(self, status: int, payload: dict | str, content_type: str = "application/json") -> None:
         self.send_response(status)

@@ -17,7 +17,7 @@ This repository now includes an MVP implementation of the LatentGuard pipeline d
 ## Run
 
 ```bash
-python3 /home/runner/work/LatentGuard/LatentGuard/main.py
+python3 main.py
 ```
 
 Server starts at `http://127.0.0.1:8080`.
@@ -25,6 +25,5 @@ Server starts at `http://127.0.0.1:8080`.
 ## Test
 
 ```bash
-cd /home/runner/work/LatentGuard/LatentGuard
-python3 -m unittest discover -s /home/runner/work/LatentGuard/LatentGuard/tests -v
+python3 -m unittest discover -s tests -v
 ```
