@@ -48,7 +48,7 @@ class ReverseProxyInterceptor:
         headers = self._normalize_headers(request_payload.get("headers", {}))
         body = request_payload.get("body", "")
         if isinstance(body, (dict, list)):
-            body = json.dumps(body, ensure_ascii=False)
+            body = json.dumps(body)
         else:
             body = str(body)
 
