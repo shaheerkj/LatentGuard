@@ -21,7 +21,19 @@ class FirstThreeModulesTests(unittest.TestCase):
         self.assertEqual(req.path, "/login")
         self.assertEqual(req.query, "next=%2Fdashboard")
         self.assertEqual(req.source_ip, "203.0.113.11")
-        self.assertIn("username", req.body)
+        self.assertEqual(req.body, '{"username": "alice"}')
+
+    def test_module_1_interception_serializes_list_body(self) -> None:
+        interceptor = ReverseProxyInterceptor()
+        req = interceptor.intercept(
+            {
+                "method": "POST",
+                "path": "/events",
+                "headers": {"Host": "example.com"},
+                "body": ["a", "b", 1],
+            }
+        )
+        self.assertEqual(req.body, '["a", "b", 1]')
 
     def test_module_2_normalization_and_feature_extraction(self) -> None:
         normalizer = RequestNormalizer()
