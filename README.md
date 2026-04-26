@@ -1,16 +1,16 @@
-# LatentGuard MVP
+# LatentGuard
 
-This repository now includes an MVP implementation of the LatentGuard pipeline derived from the SRS.
+This repository includes a working LatentGuard pipeline with a browser-based frontend console and API endpoints.
 
-## Implemented MVP capabilities
+## Implemented capabilities
 
 - Traffic inspection API endpoint (`POST /inspect`)
 - Request normalization + feature extraction
 - Rule-based filtering (baseline signatures + threat-intel denylist hooks)
-- ML anomaly/outlier scoring (MVP heuristic surrogate)
+- ML anomaly/outlier scoring (heuristic surrogate)
 - Consensus decision engine with configurable weights/thresholds
 - Logging + explainability in JSONL audit store
-- Basic dashboard/log/config endpoints
+- Interactive web frontend at `/` for dashboard/log/config/rules/safe-mode management
 - Rule mining/generation/review queue endpoints
 - Safe-mode fallback to rule-only operation when ML fails
 
@@ -21,6 +21,8 @@ python3 main.py
 ```
 
 Server starts at `http://127.0.0.1:8080`.
+
+Open `http://127.0.0.1:8080/` in your browser to use the frontend console.
 
 ## Test
 

@@ -3,17 +3,18 @@ from __future__ import annotations
 from dataclasses import asdict
 from typing import Any
 
-from .contracts import RequestContext
 from .normalizer import RequestNormalizer
 from .rule_engine import RuleEngine
 from .ml import MLDetector
 from .consensus import ConsensusConfig, ConsensusEngine
 from .storage import AuditStore
 from .rulegen import PatternMiner, RuleGenerator
+from .interceptor import ReverseProxyInterceptor
 
 
 class LatentGuardPipeline:
     def __init__(self, data_path: str = "./data") -> None:
+        self.interceptor = ReverseProxyInterceptor()
         self.normalizer = RequestNormalizer()
         self.rules = RuleEngine()
         self.ml = MLDetector()
@@ -42,14 +43,7 @@ class LatentGuardPipeline:
         }
 
     def process_request(self, request_payload: dict[str, Any]) -> dict[str, Any]:
-        req = RequestContext(
-            method=request_payload.get("method", "GET"),
-            path=request_payload.get("path", "/"),
-            query=request_payload.get("query", ""),
-            headers=request_payload.get("headers", {}),
-            body=request_payload.get("body", ""),
-            source_ip=request_payload.get("source_ip", "0.0.0.0"),
-        )
+        req = self.interceptor.intercept(request_payload)
 
         norm = self.normalizer.normalize(req)
         rule_eval = self.rules.evaluate(req, norm)
