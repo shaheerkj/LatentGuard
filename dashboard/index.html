@@ -1,0 +1,128 @@
+<!doctype html>
+<html lang="en" data-theme="dark">
+<head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>LatentGuard — Operator Console</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=Fira+Code:wght@400;500&display=swap" rel="stylesheet">
+    <link rel="stylesheet" href="assets/style.css">
+</head>
+<body>
+    <header class="topbar">
+        <div class="brand">
+            <span class="brand-mark">L</span>
+            <span class="brand-name">LatentGuard</span>
+            <span class="brand-tag">Adaptive WAF</span>
+        </div>
+        <nav class="nav">
+            <a class="nav-link active" data-route="dashboard">Dashboard</a>
+            <a class="nav-link" data-route="logs">Request Log</a>
+            <a class="nav-link" data-route="rules">Rules Queue</a>
+        </nav>
+        <div class="status">
+            <span id="safe-mode-pill" class="pill pill--ok">ML: healthy</span>
+        </div>
+    </header>
+
+    <main class="main">
+        <section id="view-dashboard" class="view view--active">
+            <div class="grid">
+                <div class="card kpi">
+                    <div class="kpi-label">Total requests</div>
+                    <div class="kpi-value" id="kpi-total">—</div>
+                </div>
+                <div class="card kpi">
+                    <div class="kpi-label">Blocked</div>
+                    <div class="kpi-value kpi-danger" id="kpi-blocked">—</div>
+                </div>
+                <div class="card kpi">
+                    <div class="kpi-label">Under review</div>
+                    <div class="kpi-value kpi-warn" id="kpi-review">—</div>
+                </div>
+                <div class="card kpi">
+                    <div class="kpi-label">Block rate</div>
+                    <div class="kpi-value" id="kpi-rate">—</div>
+                </div>
+                <div class="card kpi">
+                    <div class="kpi-label">P95 latency</div>
+                    <div class="kpi-value" id="kpi-p95">— ms</div>
+                </div>
+            </div>
+
+            <div class="card chart-card">
+                <div class="card-header">
+                    <h2>Traffic over time</h2>
+                    <span class="card-sub">Last 60 minutes, per-minute counts by action</span>
+                </div>
+                <canvas id="chart-traffic" height="120"></canvas>
+            </div>
+        </section>
+
+        <section id="view-logs" class="view">
+            <div class="card table-card">
+                <div class="card-header">
+                    <h2>Recent requests</h2>
+                    <div class="filter">
+                        <label>Filter:</label>
+                        <select id="log-filter">
+                            <option value="">All</option>
+                            <option value="block">Blocked</option>
+                            <option value="review">Review</option>
+                            <option value="allow">Allowed</option>
+                        </select>
+                    </div>
+                </div>
+                <div class="table-wrap">
+                    <table>
+                        <thead>
+                            <tr>
+                                <th>Time</th>
+                                <th>Source IP</th>
+                                <th>Method</th>
+                                <th>Path</th>
+                                <th>Action</th>
+                                <th>Score</th>
+                                <th>Rule hits</th>
+                                <th>Latency</th>
+                            </tr>
+                        </thead>
+                        <tbody id="log-tbody">
+                            <tr><td colspan="8" class="empty">Loading…</td></tr>
+                        </tbody>
+                    </table>
+                </div>
+            </div>
+        </section>
+
+        <section id="view-rules" class="view">
+            <div class="card table-card">
+                <div class="card-header">
+                    <h2>AI-generated rule queue</h2>
+                    <span class="card-sub">Drafts awaiting human approval before deployment to Coraza</span>
+                </div>
+                <div class="table-wrap">
+                    <table>
+                        <thead>
+                            <tr>
+                                <th>Rule ID</th>
+                                <th>Pattern</th>
+                                <th>Confidence</th>
+                                <th>Status</th>
+                                <th>Created</th>
+                            </tr>
+                        </thead>
+                        <tbody id="rules-tbody">
+                            <tr><td colspan="5" class="empty">No drafts yet — run pattern mining to populate this queue.</td></tr>
+                        </tbody>
+                    </table>
+                </div>
+            </div>
+        </section>
+    </main>
+
+    <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.4/dist/chart.umd.min.js"></script>
+    <script src="js/app.js"></script>
+</body>
+</html>

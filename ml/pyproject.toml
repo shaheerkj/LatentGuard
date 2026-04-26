@@ -1,0 +1,38 @@
+[project]
+name = "latentguard-ml"
+version = "0.1.0"
+description = "LatentGuard ML service: autoencoder, HDBSCAN, consensus, mining, rule generation"
+requires-python = ">=3.11"
+dependencies = [
+    "fastapi>=0.115",
+    "uvicorn[standard]>=0.30",
+    "pydantic>=2.7",
+    "pymongo>=4.8",
+    "numpy>=1.26",
+    "scikit-learn>=1.4",
+    "tensorflow-cpu>=2.16; platform_system != 'Darwin'",
+    "tensorflow>=2.16; platform_system == 'Darwin'",
+    "hdbscan>=0.8.33",
+    "mlxtend>=0.23",
+    "python-multipart>=0.0.9",
+    "httpx>=0.27",
+]
+
+[project.optional-dependencies]
+dev = [
+    "pytest>=8",
+    "pytest-asyncio>=0.23",
+    "ruff>=0.5",
+    "mypy>=1.10",
+]
+
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[tool.setuptools.packages.find]
+include = ["app*"]
+
+[tool.ruff]
+line-length = 100
+target-version = "py311"

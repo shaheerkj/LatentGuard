@@ -1,3 +1,37 @@
-
+# Python
 __pycache__/
 *.pyc
+.venv/
+*.egg-info/
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+
+# Go
+proxy/proxy
+proxy/proxy.exe
+*.test
+vendor/
+
+# ML artifacts
+ml/models/*.h5
+ml/models/*.keras
+ml/models/*.pkl
+ml/models/*.joblib
+
+# Datasets (raw downloads)
+datasets/raw/
+datasets/processed/
+datasets/*.csv
+datasets/*.parquet
+datasets/*.zip
+
+# Editor / OS
+.vscode/
+.idea/
+.DS_Store
+Thumbs.db
+
+# Local secrets
+.env
+.env.local
