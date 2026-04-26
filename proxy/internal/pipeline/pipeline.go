@@ -69,10 +69,9 @@ func Handler(
 
 		switch {
 		case safe.Get():
-			verdict = decision.FromCorazaOnly(corazaBlocked, insp.MaxSeverity, append(ruleReasons, "ML in safe mode"))
+			verdict = decision.FromCorazaOnly(corazaBlocked, insp.MaxSeverity, true, append(ruleReasons, "ML in safe mode"))
 		case corazaBlocked:
-			verdict = decision.FromCorazaOnly(corazaBlocked, insp.MaxSeverity, ruleReasons)
-			verdict.FallbackUsed = false
+			verdict = decision.FromCorazaOnly(corazaBlocked, insp.MaxSeverity, false, ruleReasons)
 		default:
 			ctx, cancel := context.WithTimeout(r.Context(), 300*time.Millisecond)
 			scoreReq := client.ScoreRequest{
@@ -91,7 +90,7 @@ func Handler(
 			if err != nil {
 				log.Printf("ml: score call failed: %v", err)
 				safe.Set(true)
-				verdict = decision.FromCorazaOnly(false, insp.MaxSeverity, append(ruleReasons, "ML call failed: "+err.Error()))
+				verdict = decision.FromCorazaOnly(false, insp.MaxSeverity, true, append(ruleReasons, "ML call failed: "+err.Error()))
 			} else {
 				mlAction = resp.Action
 				mlScore = resp.Score

@@ -49,11 +49,10 @@ func New(rulesDir string) (*Engine, error) {
 		return nil, err
 	}
 	for _, f := range files {
-		body, readErr := os.ReadFile(f)
-		if readErr != nil {
-			return nil, fmt.Errorf("read rule file %s: %w", f, readErr)
-		}
-		cfg = cfg.WithDirectives(string(body))
+		// Use WithDirectivesFromFile so Coraza resolves relative paths in
+		// includes and @pmFromFile/@ipMatchFromFile operators against the
+		// rule file's own directory (CRS rules reference *.data files this way).
+		cfg = cfg.WithDirectivesFromFile(f)
 		log.Printf("coraza: loaded rule file %s", f)
 	}
 

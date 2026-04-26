@@ -18,13 +18,18 @@ type Verdict struct {
 	FallbackUsed bool
 }
 
-// FromCorazaOnly is the safe-mode reduction: rule action wins, ML is bypassed.
-func FromCorazaOnly(corazaInterrupted bool, maxSeverity int, reasons []string) Verdict {
-	v := Verdict{Reasons: append([]string{}, reasons...), FallbackUsed: true}
+// FromCorazaOnly is the rule-only reduction: ML is bypassed and the verdict
+// is decided purely from Coraza output. The fallback flag distinguishes the
+// two callers — true when ML was unreachable (real safe-mode fallback), false
+// when ML was deliberately skipped because Coraza already blocked. The flag
+// is recorded in the audit log so operators can tell genuine ML outages apart
+// from rule-driven blocks.
+func FromCorazaOnly(corazaInterrupted bool, maxSeverity int, fallback bool, reasons []string) Verdict {
+	v := Verdict{Reasons: append([]string{}, reasons...), FallbackUsed: fallback}
 	v.Score = severityToScore(maxSeverity)
 	if corazaInterrupted {
 		v.Action = ActionBlock
-		v.Reasons = append(v.Reasons, "Coraza disruptive rule fired (safe mode)")
+		v.Reasons = append(v.Reasons, "Coraza disruptive rule fired")
 		return v
 	}
 	v.Action = ActionAllow
