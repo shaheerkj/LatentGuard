@@ -1,0 +1,21 @@
+{
+  "version": "ae-20260426-152930",
+  "trained_at": "2026-04-26T15:29:30.863843+00:00",
+  "samples": 36000,
+  "feature_names": [
+    "length",
+    "entropy",
+    "token_count",
+    "special_ratio",
+    "digit_ratio",
+    "uppercase_ratio",
+    "method_is_post"
+  ],
+  "bottleneck": 4,
+  "threshold": 0.00041364916251040995,
+  "threshold_percentile": 99.0,
+  "recon_error_p50": 2.7774087811849313e-06,
+  "recon_error_p95": 0.00010300837311660871,
+  "recon_error_p99": 0.00041364916251040995,
+  "epochs_run": 40
+}

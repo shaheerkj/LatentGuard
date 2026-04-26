@@ -28,6 +28,9 @@ type AuditRecord struct {
 	RuleHits       []int                  `bson:"rule_hits"`
 	MLAction       string                 `bson:"ml_action"`
 	MLScore        float64                `bson:"ml_score"`
+	MLAnomalyScore float64                `bson:"ml_anomaly_score"`
+	MLOutlierScore float64                `bson:"ml_outlier_score"`
+	RuleScore      float64                `bson:"rule_score"`
 	FinalAction    string                 `bson:"final_action"`
 	FallbackUsed   bool                   `bson:"fallback_used"`
 	Reasons        []string               `bson:"reasons"`

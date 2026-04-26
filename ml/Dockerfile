@@ -12,6 +12,7 @@ RUN apt-get update \
 
 COPY pyproject.toml ./
 COPY app ./app
+COPY training ./training
 RUN pip install --upgrade pip && pip install .
 
 EXPOSE 8000

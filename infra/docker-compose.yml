@@ -32,6 +32,10 @@ services:
     environment:
       MONGO_URI: mongodb://mongo:27017
       MONGO_DB: latentguard
+      CSIC_DIR: /app/csic_raw
+    volumes:
+      - ../ml/models:/app/models      # trained artifacts persist & are host-editable
+      - ../datasets/raw:/app/csic_raw # cached CSIC downloads
     depends_on:
       - mongo
     networks:
@@ -45,10 +49,16 @@ services:
     restart: unless-stopped
     ports:
       - "8080:8080"
+      - "8443:8443"
     environment:
       PROXY_LISTEN: ":8080"
+      PROXY_TLS_LISTEN: ":8443"
+      # PROXY_TLS_CERT / PROXY_TLS_KEY left unset -> proxy auto-generates a
+      # self-signed cert at startup (24h validity, localhost SAN). For prod,
+      # mount a real cert into /etc/certs and set the two env vars.
       PROXY_UPSTREAM: "http://dvwa:80"
       ML_URL: "http://ml:8000"
+      ML_TIMEOUT_MS: "1000"
       MONGO_URI: "mongodb://mongo:27017"
       MONGO_DB: "latentguard"
       CORAZA_RULES_DIR: "/etc/coraza/rules"

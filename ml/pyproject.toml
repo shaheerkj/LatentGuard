@@ -30,8 +30,12 @@ dev = [
 requires = ["setuptools>=68"]
 build-backend = "setuptools.build_meta"
 
+[project.scripts]
+latentguard-train-autoencoder = "training.train_autoencoder:main"
+latentguard-train-hdbscan     = "training.train_hdbscan:main"
+
 [tool.setuptools.packages.find]
-include = ["app*"]
+include = ["app*", "training*"]
 
 [tool.ruff]
 line-length = 100

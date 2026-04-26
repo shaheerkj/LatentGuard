@@ -3,7 +3,7 @@
 <head>
     <meta charset="utf-8">
     <meta name="viewport" content="width=device-width, initial-scale=1">
-    <title>LatentGuard — Operator Console</title>
+    <title>LatentGuard - Operator Console</title>
     <link rel="preconnect" href="https://fonts.googleapis.com">
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=Fira+Code:wght@400;500&display=swap" rel="stylesheet">
@@ -18,8 +18,12 @@
         </div>
         <nav class="nav">
             <a class="nav-link active" data-route="dashboard">Dashboard</a>
+            <a class="nav-link" data-route="models">Anomaly Models</a>
+            <a class="nav-link" data-route="consensus">Consensus</a>
             <a class="nav-link" data-route="logs">Request Log</a>
             <a class="nav-link" data-route="rules">Rules Queue</a>
+            <a class="nav-link nav-link--soon" data-route="alerts">Alerts</a>
+            <a class="nav-link nav-link--soon" data-route="settings">Settings</a>
         </nav>
         <div class="status">
             <span id="safe-mode-pill" class="pill pill--ok">ML: healthy</span>
@@ -27,28 +31,14 @@
     </header>
 
     <main class="main">
+        <!-- ============================ DASHBOARD =========================== -->
         <section id="view-dashboard" class="view view--active">
             <div class="grid">
-                <div class="card kpi">
-                    <div class="kpi-label">Total requests</div>
-                    <div class="kpi-value" id="kpi-total">—</div>
-                </div>
-                <div class="card kpi">
-                    <div class="kpi-label">Blocked</div>
-                    <div class="kpi-value kpi-danger" id="kpi-blocked">—</div>
-                </div>
-                <div class="card kpi">
-                    <div class="kpi-label">Under review</div>
-                    <div class="kpi-value kpi-warn" id="kpi-review">—</div>
-                </div>
-                <div class="card kpi">
-                    <div class="kpi-label">Block rate</div>
-                    <div class="kpi-value" id="kpi-rate">—</div>
-                </div>
-                <div class="card kpi">
-                    <div class="kpi-label">P95 latency</div>
-                    <div class="kpi-value" id="kpi-p95">— ms</div>
-                </div>
+                <div class="card kpi"><div class="kpi-label">Total requests</div><div class="kpi-value" id="kpi-total">-</div></div>
+                <div class="card kpi"><div class="kpi-label">Blocked</div><div class="kpi-value kpi-danger" id="kpi-blocked">-</div></div>
+                <div class="card kpi"><div class="kpi-label">Under review</div><div class="kpi-value kpi-warn" id="kpi-review">-</div></div>
+                <div class="card kpi"><div class="kpi-label">Block rate</div><div class="kpi-value" id="kpi-rate">-</div></div>
+                <div class="card kpi"><div class="kpi-label">P95 latency</div><div class="kpi-value" id="kpi-p95">- ms</div></div>
             </div>
 
             <div class="card chart-card">
@@ -60,6 +50,141 @@
             </div>
         </section>
 
+        <!-- ====================== ANOMALY MODELS (M3) ======================= -->
+        <section id="view-models" class="view">
+            <div class="model-grid">
+                <div class="card model-card" id="card-autoencoder">
+                    <div class="card-header">
+                        <h2>M4 Autoencoder</h2>
+                        <span class="pill" id="ae-loaded-pill">checking...</span>
+                    </div>
+                    <dl class="model-meta">
+                        <dt>Version</dt><dd id="ae-version">-</dd>
+                        <dt>Trained</dt><dd id="ae-trained">-</dd>
+                        <dt>Samples</dt><dd id="ae-samples">-</dd>
+                        <dt>Bottleneck</dt><dd id="ae-bottleneck">-</dd>
+                        <dt>Recon p95</dt><dd id="ae-p95">-</dd>
+                        <dt>Threshold</dt><dd id="ae-threshold">-</dd>
+                    </dl>
+                    <div class="model-actions">
+                        <button class="btn btn-primary" data-retrain="autoencoder">Retrain</button>
+                        <span class="model-action-status" id="ae-status"></span>
+                    </div>
+                </div>
+
+                <div class="card model-card" id="card-hdbscan">
+                    <div class="card-header">
+                        <h2>M5 HDBSCAN</h2>
+                        <span class="pill" id="hdb-loaded-pill">checking...</span>
+                    </div>
+                    <dl class="model-meta">
+                        <dt>Version</dt><dd id="hdb-version">-</dd>
+                        <dt>Trained</dt><dd id="hdb-trained">-</dd>
+                        <dt>Samples</dt><dd id="hdb-samples">-</dd>
+                        <dt>Clusters</dt><dd id="hdb-clusters">-</dd>
+                        <dt>Noise</dt><dd id="hdb-noise">-</dd>
+                        <dt>Min cluster size</dt><dd id="hdb-mcs">-</dd>
+                    </dl>
+                    <div class="model-actions">
+                        <button class="btn btn-primary" data-retrain="hdbscan">Re-cluster</button>
+                        <span class="model-action-status" id="hdb-status"></span>
+                    </div>
+                </div>
+            </div>
+            <p class="hint">Retraining runs the corresponding script in the ML container. Watch the container logs for progress; this page refreshes automatically.</p>
+        </section>
+
+        <!-- ========================= CONSENSUS (M6) ========================= -->
+        <section id="view-consensus" class="view">
+            <div class="card consensus-card">
+                <div class="card-header">
+                    <h2>Consensus configuration</h2>
+                    <span class="card-sub">How M4 + M5 + Coraza signals are reduced into one verdict</span>
+                </div>
+
+                <div class="consensus-row">
+                    <label class="consensus-label">Mode</label>
+                    <div class="radio-row">
+                        <label><input type="radio" name="mode" value="weighted"> Weighted voting</label>
+                        <label><input type="radio" name="mode" value="majority"> Majority</label>
+                        <label><input type="radio" name="mode" value="strict"> Strict (any-block)</label>
+                    </div>
+                </div>
+
+                <div class="consensus-row" id="weights-row">
+                    <label class="consensus-label">Per-model weights (must sum to 100)</label>
+                    <div class="sliders">
+                        <div class="slider-row">
+                            <span class="slider-name">Autoencoder</span>
+                            <input type="range" min="0" max="100" id="w-ae">
+                            <span class="slider-val" id="w-ae-v">40</span>
+                        </div>
+                        <div class="slider-row">
+                            <span class="slider-name">HDBSCAN</span>
+                            <input type="range" min="0" max="100" id="w-hdb">
+                            <span class="slider-val" id="w-hdb-v">30</span>
+                        </div>
+                        <div class="slider-row">
+                            <span class="slider-name">Coraza rules</span>
+                            <input type="range" min="0" max="100" id="w-rule">
+                            <span class="slider-val" id="w-rule-v">30</span>
+                        </div>
+                        <div class="slider-sum">
+                            Sum: <span id="w-sum">100</span> / 100
+                        </div>
+                    </div>
+                </div>
+
+                <div class="consensus-row">
+                    <label class="consensus-label" for="threshold">Decision threshold</label>
+                    <div class="slider-row">
+                        <input type="range" min="0" max="100" id="threshold">
+                        <span class="slider-val" id="threshold-v">0.65</span>
+                    </div>
+                    <span class="card-sub">Combined score at or above this becomes "block". A 0.15-band below is "review".</span>
+                </div>
+
+                <div class="consensus-row">
+                    <label class="consensus-label" for="per-model-threshold">Per-model threshold (majority &amp; strict)</label>
+                    <div class="slider-row">
+                        <input type="range" min="0" max="100" id="per-model-threshold">
+                        <span class="slider-val" id="pmt-v">0.50</span>
+                    </div>
+                </div>
+
+                <div class="consensus-actions">
+                    <button class="btn btn-primary" id="save-consensus">Save</button>
+                    <span class="model-action-status" id="consensus-status"></span>
+                </div>
+            </div>
+
+            <div class="card table-card" style="margin-top: var(--gap);">
+                <div class="card-header">
+                    <h2>Recent decisions</h2>
+                    <span class="card-sub">Per-model scores feeding the consensus engine</span>
+                </div>
+                <div class="table-wrap">
+                    <table>
+                        <thead>
+                            <tr>
+                                <th>Time</th>
+                                <th>Method</th>
+                                <th>Path</th>
+                                <th>AE</th>
+                                <th>HDB</th>
+                                <th>Rule</th>
+                                <th>Final</th>
+                            </tr>
+                        </thead>
+                        <tbody id="decisions-tbody">
+                            <tr><td colspan="7" class="empty">Loading...</td></tr>
+                        </tbody>
+                    </table>
+                </div>
+            </div>
+        </section>
+
+        <!-- ============================ LOGS ================================ -->
         <section id="view-logs" class="view">
             <div class="card table-card">
                 <div class="card-header">
@@ -89,13 +214,14 @@
                             </tr>
                         </thead>
                         <tbody id="log-tbody">
-                            <tr><td colspan="8" class="empty">Loading…</td></tr>
+                            <tr><td colspan="8" class="empty">Loading...</td></tr>
                         </tbody>
                     </table>
                 </div>
             </div>
         </section>
 
+        <!-- ============================ RULES =============================== -->
         <section id="view-rules" class="view">
             <div class="card table-card">
                 <div class="card-header">
@@ -114,10 +240,24 @@
                             </tr>
                         </thead>
                         <tbody id="rules-tbody">
-                            <tr><td colspan="5" class="empty">No drafts yet — run pattern mining to populate this queue.</td></tr>
+                            <tr><td colspan="5" class="empty">No drafts yet - run pattern mining to populate this queue.</td></tr>
                         </tbody>
                     </table>
                 </div>
+            </div>
+        </section>
+
+        <!-- ===================== ALERTS / SETTINGS (Phase D) ================ -->
+        <section id="view-alerts" class="view">
+            <div class="card placeholder">
+                <h2>Alerts</h2>
+                <p>Real-time alerting and notification routing arrives in Phase D.</p>
+            </div>
+        </section>
+        <section id="view-settings" class="view">
+            <div class="card placeholder">
+                <h2>Settings</h2>
+                <p>RBAC, integrations, and operator preferences arrive in Phase D.</p>
             </div>
         </section>
     </main>
