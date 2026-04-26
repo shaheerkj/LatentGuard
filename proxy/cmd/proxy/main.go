@@ -2,6 +2,7 @@ package main
 
 import (
 	"context"
+	"crypto/tls"
 	"errors"
 	"log"
 	"net/http"
@@ -17,10 +18,14 @@ import (
 	"github.com/shaheerkj/latentguard/proxy/internal/coraza"
 	"github.com/shaheerkj/latentguard/proxy/internal/pipeline"
 	"github.com/shaheerkj/latentguard/proxy/internal/storage"
+	"github.com/shaheerkj/latentguard/proxy/internal/tlsutil"
 )
 
 type config struct {
 	listen      string
+	tlsListen   string
+	tlsCertFile string
+	tlsKeyFile  string
 	upstreamURL string
 	mlURL       string
 	mlTimeout   time.Duration
@@ -33,6 +38,9 @@ func loadConfig() config {
 	timeoutMS, _ := strconv.Atoi(env("ML_TIMEOUT_MS", "250"))
 	return config{
 		listen:      env("PROXY_LISTEN", ":8080"),
+		tlsListen:   env("PROXY_TLS_LISTEN", ":8443"),
+		tlsCertFile: env("PROXY_TLS_CERT", ""),
+		tlsKeyFile:  env("PROXY_TLS_KEY", ""),
 		upstreamURL: env("PROXY_UPSTREAM", "http://localhost:8081"),
 		mlURL:       env("ML_URL", "http://localhost:8000"),
 		mlTimeout:   time.Duration(timeoutMS) * time.Millisecond,
@@ -103,13 +111,37 @@ func main() {
 		ReadHeaderTimeout: 5 * time.Second,
 	}
 
+	// HTTPS listener (Module 1 / FE-2: TLS termination at the proxy edge so we
+	// can inspect plaintext before forwarding upstream). Runs in parallel with
+	// the HTTP listener — same handler, same Coraza/ML/audit pipeline.
+	cert, certSource, err := tlsutil.Load(cfg.tlsCertFile, cfg.tlsKeyFile)
+	if err != nil {
+		log.Fatalf("tls cert: %v", err)
+	}
+	tlsServer := &http.Server{
+		Addr:              cfg.tlsListen,
+		Handler:           mux,
+		ReadHeaderTimeout: 5 * time.Second,
+		TLSConfig: &tls.Config{
+			Certificates: []tls.Certificate{cert},
+			MinVersion:   tls.VersionTLS12,
+		},
+	}
+
 	stop := make(chan os.Signal, 1)
 	signal.Notify(stop, os.Interrupt, syscall.SIGTERM)
 
 	go func() {
-		log.Printf("listening on %s", cfg.listen)
+		log.Printf("listening on %s (HTTP)", cfg.listen)
 		if err := server.ListenAndServe(); err != nil && !errors.Is(err, http.ErrServerClosed) {
 			log.Fatalf("server error: %v", err)
+		}
+	}()
+
+	go func() {
+		log.Printf("listening on %s (HTTPS, cert=%s)", cfg.tlsListen, certSource)
+		if err := tlsServer.ListenAndServeTLS("", ""); err != nil && !errors.Is(err, http.ErrServerClosed) {
+			log.Fatalf("tls server error: %v", err)
 		}
 	}()
 
@@ -118,6 +150,7 @@ func main() {
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()
 	_ = server.Shutdown(ctx)
+	_ = tlsServer.Shutdown(ctx)
 	if store != nil {
 		_ = store.Close(ctx)
 	}

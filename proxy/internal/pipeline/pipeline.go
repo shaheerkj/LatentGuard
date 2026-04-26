@@ -61,6 +61,9 @@ func Handler(
 		var verdict decision.Verdict
 		var mlAction string
 		var mlScore float64
+		var mlAnomaly float64
+		var mlOutlier float64
+		ruleScore := severityToFloat(insp.MaxSeverity)
 
 		ruleReasons := []string{}
 		if len(insp.MatchedRuleIDs) > 0 {
@@ -73,7 +76,10 @@ func Handler(
 		case corazaBlocked:
 			verdict = decision.FromCorazaOnly(corazaBlocked, insp.MaxSeverity, false, ruleReasons)
 		default:
-			ctx, cancel := context.WithTimeout(r.Context(), 300*time.Millisecond)
+			// MLClient already imposes an http.Client.Timeout (ML_TIMEOUT_MS env);
+			// no additional context deadline here. A double-budget would just
+			// truncate the call early and trigger spurious safe-mode flips.
+			ctx, cancel := context.WithCancel(r.Context())
 			scoreReq := client.ScoreRequest{
 				RequestID:      requestID,
 				Method:         r.Method,
@@ -82,7 +88,7 @@ func Handler(
 				CanonicalQuery: norm.CanonicalQuery,
 				CanonicalBody:  norm.CanonicalBody,
 				Features:       norm.Features,
-				RuleScore:      severityToFloat(insp.MaxSeverity),
+				RuleScore:      ruleScore,
 				RuleMatched:    intsToStrings(insp.MatchedRuleIDs),
 			}
 			resp, err := mlc.Score(ctx, scoreReq)
@@ -94,6 +100,8 @@ func Handler(
 			} else {
 				mlAction = resp.Action
 				mlScore = resp.Score
+				mlAnomaly = resp.AnomalyScore
+				mlOutlier = resp.OutlierScore
 				verdict = decision.FromML(corazaBlocked, insp.MaxSeverity, resp.Action, resp.Score, append(ruleReasons, resp.Reasons...))
 			}
 		}
@@ -113,6 +121,9 @@ func Handler(
 			RuleHits:       insp.MatchedRuleIDs,
 			MLAction:       mlAction,
 			MLScore:        mlScore,
+			MLAnomalyScore: mlAnomaly,
+			MLOutlierScore: mlOutlier,
+			RuleScore:      ruleScore,
 			FinalAction:    verdict.Action,
 			FallbackUsed:   verdict.FallbackUsed,
 			Reasons:        verdict.Reasons,

@@ -29,3 +29,13 @@ def requests_collection() -> Collection:
 
 def rules_collection() -> Collection:
     return get_db()["rules_queue"]
+
+
+def client_or_none() -> MongoClient | None:
+    """get_client() but never raises - returns None if Mongo init fails. Used by
+    optional features (e.g. consensus config persistence) that should degrade
+    gracefully when storage is unavailable."""
+    try:
+        return get_client()
+    except Exception:
+        return None
