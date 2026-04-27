@@ -63,7 +63,15 @@ func Handler(
 		var mlScore float64
 		var mlAnomaly float64
 		var mlOutlier float64
-		ruleScore := severityToFloat(insp.MaxSeverity)
+		// Use AttackMaxSeverity, not MaxSeverity. CRS init/scoring/correlation
+		// rules fire on every request; counting them inflates rule_score to
+		// ~0.8 on benign traffic and trips the consensus engine into blocks.
+		// Belt-and-suspenders: if no attack rules matched at all, force the
+		// rule_score to 0 so a stray unset-severity match can't bubble up.
+		var ruleScore float64
+		if len(insp.AttackMatchedRuleIDs) > 0 {
+			ruleScore = severityToFloat(insp.AttackMaxSeverity)
+		}
 
 		ruleReasons := []string{}
 		if len(insp.MatchedRuleIDs) > 0 {
@@ -72,9 +80,9 @@ func Handler(
 
 		switch {
 		case safe.Get():
-			verdict = decision.FromCorazaOnly(corazaBlocked, insp.MaxSeverity, true, append(ruleReasons, "ML in safe mode"))
+			verdict = decision.FromCorazaOnly(corazaBlocked, insp.AttackMaxSeverity, true, append(ruleReasons, "ML in safe mode"))
 		case corazaBlocked:
-			verdict = decision.FromCorazaOnly(corazaBlocked, insp.MaxSeverity, false, ruleReasons)
+			verdict = decision.FromCorazaOnly(corazaBlocked, insp.AttackMaxSeverity, false, ruleReasons)
 		default:
 			// MLClient already imposes an http.Client.Timeout (ML_TIMEOUT_MS env);
 			// no additional context deadline here. A double-budget would just
@@ -96,13 +104,13 @@ func Handler(
 			if err != nil {
 				log.Printf("ml: score call failed: %v", err)
 				safe.Set(true)
-				verdict = decision.FromCorazaOnly(false, insp.MaxSeverity, true, append(ruleReasons, "ML call failed: "+err.Error()))
+				verdict = decision.FromCorazaOnly(false, insp.AttackMaxSeverity, true, append(ruleReasons, "ML call failed: "+err.Error()))
 			} else {
 				mlAction = resp.Action
 				mlScore = resp.Score
 				mlAnomaly = resp.AnomalyScore
 				mlOutlier = resp.OutlierScore
-				verdict = decision.FromML(corazaBlocked, insp.MaxSeverity, resp.Action, resp.Score, append(ruleReasons, resp.Reasons...))
+				verdict = decision.FromML(corazaBlocked, insp.AttackMaxSeverity, resp.Action, resp.Score, append(ruleReasons, resp.Reasons...))
 			}
 		}
 
@@ -223,14 +231,18 @@ func ruleActionLabel(blocked bool) string {
 	return "allow"
 }
 
+// severityToFloat converts a syslog severity (0=Emergency, 7=Debug) to a
+// [0, 1] score where 1.0 means "most severe". The previous version had this
+// inverted -- it treated NOTICE (5) as 1.0 and CRITICAL (2) as 0.4, so CRS
+// init rules (NOTICE) outscored real attack rules.
 func severityToFloat(sev int) float64 {
 	if sev <= 0 {
-		return 0
-	}
-	if sev >= 5 {
 		return 1.0
 	}
-	return float64(sev) / 5.0
+	if sev >= 7 {
+		return 0.0
+	}
+	return 1.0 - float64(sev)/7.0
 }
 
 func intsToStrings(xs []int) []string {

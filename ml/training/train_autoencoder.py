@@ -32,6 +32,7 @@ import numpy as np  # noqa: E402
 
 from app.features import FEATURE_NAMES, features_matrix  # noqa: E402
 from training.csic_loader import CSIC_NORMAL_URL, load_split  # noqa: E402
+from training.mongo_loader import DEFAULT_UA as CRAWLER_UA, load_by_user_agent  # noqa: E402
 
 MODELS_DIR = ML_DIR / "models"
 # CSIC_DIR can be overridden so the container can mount the host's cached
@@ -68,6 +69,14 @@ def main() -> int:
     p.add_argument("--bottleneck", type=int, default=DEFAULT_BOTTLENECK)
     p.add_argument("--threshold-pct", type=float, default=99.0,
                    help="reconstruction-error percentile used as anomaly threshold")
+    p.add_argument("--augment-mongo", action="store_true",
+                   help="mix in benign-features rows from the Mongo audit log "
+                        "(populated by datasets/crawl_dvwa_benign.py); broadens "
+                        "training distribution beyond CSIC's narrow path shape")
+    p.add_argument("--mongo-ua", default=CRAWLER_UA,
+                   help="User-Agent filter for Mongo augment rows")
+    p.add_argument("--mongo-limit", type=int, default=None,
+                   help="cap Mongo augment rows (default: all matching)")
     args = p.parse_args()
 
     print(f"[autoencoder] loading benign split (max={args.max}) ...", flush=True)
@@ -75,6 +84,16 @@ def main() -> int:
     if not feats:
         print("[autoencoder] ERROR: no samples parsed", file=sys.stderr)
         return 1
+
+    if args.augment_mongo:
+        print(f"[autoencoder] loading Mongo augment (UA={args.mongo_ua}) ...", flush=True)
+        extra = load_by_user_agent(args.mongo_ua, limit=args.mongo_limit)
+        print(f"[autoencoder] augment: +{len(extra)} rows from audit log", flush=True)
+        feats = feats + extra
+        if not extra:
+            print("[autoencoder] WARN: --augment-mongo set but 0 rows matched. "
+                  "Did you run datasets/crawl_dvwa_benign.py first?", file=sys.stderr)
+
     X = features_matrix(feats)
     print(f"[autoencoder] X shape {X.shape}, feature names {FEATURE_NAMES}", flush=True)
 
@@ -133,6 +152,7 @@ def main() -> int:
         "recon_error_p95": p95,
         "recon_error_p99": p99,
         "epochs_run": int(len(model.history.epoch)) if model.history else args.epochs,
+        "augmented_with_mongo": bool(args.augment_mongo),
     }
     meta_path.write_text(json.dumps(meta, indent=2))
 

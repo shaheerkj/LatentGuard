@@ -53,12 +53,15 @@ func FromML(corazaInterrupted bool, maxSeverity int, mlAction string, mlScore fl
 	return v
 }
 
+// severityToScore: syslog severity (0=Emergency, 7=Debug) -> [0, 1] where
+// 1.0 means most severe. Mirrors pipeline.severityToFloat so the fallback
+// path agrees with the live consensus path on what each severity level means.
 func severityToScore(sev int) float64 {
 	if sev <= 0 {
-		return 0
-	}
-	if sev >= 5 {
 		return 1.0
 	}
-	return float64(sev) / 5.0
+	if sev >= 7 {
+		return 0.0
+	}
+	return 1.0 - float64(sev)/7.0
 }

@@ -1,11 +1,12 @@
 {
-  "version": "hdb-20260426-152951",
-  "trained_at": "2026-04-26T15:29:51.268560+00:00",
-  "samples": 36000,
-  "n_clusters": 72,
-  "n_noise": 222,
-  "noise_ratio": 0.0062,
+  "version": "hdb-20260427-064502",
+  "trained_at": "2026-04-27T06:45:02.662368+00:00",
+  "samples": 42497,
+  "n_clusters": 119,
+  "n_noise": 393,
+  "noise_ratio": 0.0092,
   "min_cluster_size": 20,
   "min_samples": 5,
-  "fit_seconds": 1.2
+  "fit_seconds": 1.84,
+  "augmented_with_mongo": true
 }

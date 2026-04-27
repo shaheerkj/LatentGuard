@@ -1,7 +1,7 @@
 {
-  "version": "ae-20260426-152930",
-  "trained_at": "2026-04-26T15:29:30.863843+00:00",
-  "samples": 36000,
+  "version": "ae-20260427-064450",
+  "trained_at": "2026-04-27T06:44:50.990243+00:00",
+  "samples": 42497,
   "feature_names": [
     "length",
     "entropy",
@@ -12,10 +12,11 @@
     "method_is_post"
   ],
   "bottleneck": 4,
-  "threshold": 0.00041364916251040995,
+  "threshold": 0.019551552832126617,
   "threshold_percentile": 99.0,
-  "recon_error_p50": 2.7774087811849313e-06,
-  "recon_error_p95": 0.00010300837311660871,
-  "recon_error_p99": 0.00041364916251040995,
-  "epochs_run": 40
+  "recon_error_p50": 9.23631014302373e-05,
+  "recon_error_p95": 0.001544194296002388,
+  "recon_error_p99": 0.019551552832126617,
+  "epochs_run": 23,
+  "augmented_with_mongo": true
 }

@@ -31,9 +31,49 @@ type InspectionResult struct {
 	// of severity. Used for audit logging.
 	MatchedRuleIDs []int
 
-	// MaxSeverity is the highest severity score seen (0..5). Used by the
-	// consensus engine as `rule_score` once it's normalised to [0,1].
+	// MaxSeverity is the highest severity reported across all matched rules,
+	// in syslog convention (0=Emergency, 7=Debug). Lower int = more severe.
+	// Includes CRS init/scoring rules so it fires on every request -- prefer
+	// AttackMaxSeverity for consensus scoring.
 	MaxSeverity int
+
+	// AttackMatchedRuleIDs is MatchedRuleIDs filtered down to "real" attack
+	// rules: CRS init (900000-901999), anomaly evaluation (949000-949999), and
+	// correlation/scoring (980000-989999) are excluded because they fire on
+	// every request regardless of payload.
+	AttackMatchedRuleIDs []int
+
+	// AttackMaxSeverity is the syslog severity over AttackMatchedRuleIDs only.
+	// Defaults to 7 (Debug, least severe) when no attack rules matched, so the
+	// consensus rule_score collapses to ~0 for clean traffic.
+	AttackMaxSeverity int
+}
+
+// isCRSScaffoldRuleID returns true for CRS rule IDs that fire as part of
+// initialization, anomaly accumulation, or correlation -- not real attack
+// detections. Filtering these out of consensus scoring stops every benign
+// request from carrying a baseline rule signal.
+//
+// CRS ID conventions used here:
+//   - 900000-901999: top-level initialization
+//   - 949000-949999: anomaly evaluation / decision
+//   - 980000-989999: correlation / score reporting
+//   - within each category (911xxx..944xxx), the xxx000-xxx099 suffix range
+//     is per-category setup (e.g. 941013 = "Set XSS Score"), the xxx100+
+//     range is actual detection. Our baseline rules at 1000000+ are
+//     unaffected since the modulo check is scoped to CRS' 9xxxxx range.
+func isCRSScaffoldRuleID(id int) bool {
+	switch {
+	case id >= 900000 && id < 902000:
+		return true
+	case id >= 949000 && id < 950000:
+		return true
+	case id >= 980000 && id < 990000:
+		return true
+	case id >= 900000 && id < 1000000 && id%1000 < 100:
+		return true
+	}
+	return false
 }
 
 // New builds an Engine, loading every *.conf file under rulesDir. A missing or
@@ -133,12 +173,34 @@ func (e *Engine) Inspect(r *http.Request, body []byte) InspectionResult {
 		result.Interruption = it
 	}
 
+	// Default to 7 (Debug) so "no rules matched" means lowest severity, not
+	// most severe. Same logic for AttackMaxSeverity.
+	result.MaxSeverity = 7
+	result.AttackMaxSeverity = 7
+	sawAny := false
+	sawAttack := false
 	for _, mr := range tx.MatchedRules() {
 		rule := mr.Rule()
-		result.MatchedRuleIDs = append(result.MatchedRuleIDs, rule.ID())
-		if sev := rule.Severity(); int(sev) > result.MaxSeverity {
-			result.MaxSeverity = int(sev)
+		id := rule.ID()
+		sev := int(rule.Severity())
+		result.MatchedRuleIDs = append(result.MatchedRuleIDs, id)
+		if !sawAny || sev < result.MaxSeverity {
+			result.MaxSeverity = sev
+			sawAny = true
 		}
+		if !isCRSScaffoldRuleID(id) {
+			result.AttackMatchedRuleIDs = append(result.AttackMatchedRuleIDs, id)
+			if !sawAttack || sev < result.AttackMaxSeverity {
+				result.AttackMaxSeverity = sev
+				sawAttack = true
+			}
+		}
+	}
+	if !sawAny {
+		result.MaxSeverity = 7
+	}
+	if !sawAttack {
+		result.AttackMaxSeverity = 7
 	}
 
 	return result
