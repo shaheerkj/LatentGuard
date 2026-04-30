@@ -11,7 +11,7 @@ This file is loaded into every Claude Code session in this repo. Keep it accurat
 The thesis: signature-based WAFs miss novel attacks; pure-ML WAFs hallucinate. LatentGuard chains them — **Coraza (Go-native ModSecurity) for fast deterministic pre-filter**, then a **Python ML scoring service** that fuses an autoencoder (M4), HDBSCAN clustering (M5), and rule signal into a configurable consensus verdict (M6). Suspicious patterns surfaced by mining the audit log (M8) are turned into draft SecLang rules by an **LLM service** (M9), reviewed by a human in the loop (M10), and fed back into Coraza. M11 closes the loop with continuous learning.
 
 ### Academic milestones
-- **FYP-I (30 % deliverable):** **DONE** as of 2026-04-26 — expanded scope. Originally landed at `265294d` (M1+M2+M3 baseline+M7); then bundled with Phase A work (M4+M5+M6, dashboard rework, HTTPS) and re-merged into `main`. See section 4 for verified results.
+- **FYP-I (30 % deliverable):** **DONE** as of 2026-04-26, **scope re-tightened 2026-04-30**. The 30 % submission claims **4 modules** — M1, M2, M3 (partial), M7 — and ships from the dedicated **`fyp-1` branch**, which gates the ML layer off via `ML_DISABLED=true` so the demo can't false-block on benign DVWA flows. The full Phase A ML pipeline (M4+M5+M6, dashboard rework, HTTPS) is on `main` and is FYP-II Phase A material, not 30 % submission scope. See sections 4 and 7 for the snapshot details.
 - **FYP-II (70 %):** to be planned in next session. Remaining SRS modules: M3 threat-intel feeds, M8, M9, M10, M11. See section 6 for the phase plan.
 
 ### Source-of-truth documents (do not regenerate from scratch — read them)
@@ -50,7 +50,7 @@ Module IDs and ordering follow **SRS section 1.7**, not the dashboard mockup IDs
 | 10 | Human-in-the-Loop Rule Validation | not started | FYP-II Phase C. Versioned rule store + hot-reload into Coraza. |
 | 11 | Continuous Learning Loop | not started | FYP-II Phase D. Scheduled drift-watch → retrain trigger; not true online learning. |
 
-**Submission count for FYP-I 30 % deliverable: 6 modules fully done (1, 2, 4, 5, 6, 7), 1 partial (3 — missing threat-intel feeds).** Safe number to put in the document is **6**; if asked about 3 in viva, frame as "core CRS rule enforcement complete, threat-intel subscription deferred to FYP-II."
+**Submission count for FYP-I 30 % deliverable: 4 modules — M1, M2, M3 (partial), M7.** That's the deterministic-WAF lifecycle: intercept → normalize → rule-check → audit-log. The ML layer (M4+M5+M6) is implemented and code is present on `fyp-1`, but the env var `ML_DISABLED=true` bypasses it for the 30 % demo. Frame at viva: *"M4-M6 are working on `main` as Phase A of FYP-II; on the submission branch they're deliberately gated so the supervisor evaluates only what's claimed for 30 %."* For M3, frame as: *"core CRS rule enforcement complete, threat-intel subscription deferred to FYP-II."*
 
 ---
 
@@ -163,6 +163,28 @@ The TPR drop is honest, not regression. The previous 39.5 % was inflated by the 
 
 Next round of TPR improvement is feature-engineering work (n-gram entropy, payload-class detection), not threshold tuning.
 
+### `fyp-1` submission-snapshot verified state (2026-04-30, branch `fyp-1`, commit `b219548`)
+
+Branch built specifically for the 30 % submission demo. Same code as `main` but with a kill-switch that bypasses the ML layer so a supervisor evaluating M1+M2+M3+M7 can never see a benign request blocked by an in-progress autoencoder.
+
+- 5 containers up; proxy logs `ML_DISABLED=true -- bypassing autoencoder/HDBSCAN/consensus; verdicts come from Coraza alone (FYP-I 30% scope)` at boot.
+- Heartbeat goroutine **not** started (no point pinging a layer we'll never call).
+- Benign smoke (4/4): GET `/`, `/login.php`, `/index.php`, `/favicon.ico` → 302/200/302/200.
+- Attack smoke (5/5): SQLi, XSS, path traversal, command injection, scanner UA → 403 from Coraza.
+- Audit-log semantics: `ml_action=""`, `ml_score=0`, `fallback_used=false`, reasons array carries `"ML disabled (FYP-I scope: M1+M2+M3+M7)"`. Crucially `fallback_used` stays *false* — this is intentional scope gating, not a real ML outage. See gotcha #18.
+- Dashboard (port 3000) renders correctly; recent-decisions table shows Coraza-only verdicts.
+- ML container (`latentguard-ml`) is still running, just unused by the proxy. The dashboard's model-card endpoint still resolves so the supervisor can see the trained artifacts exist (the work is on `main`, gated here).
+
+Re-verify on `fyp-1`:
+```bash
+git checkout fyp-1
+docker compose -f infra/docker-compose.yml up -d --build
+sleep 8
+curl -s -o /dev/null -w "%{http_code}\n" http://localhost:8080/                       # expect 302
+curl -s -o /dev/null -w "%{http_code}\n" "http://localhost:8080/?q=%27%20OR%201=1--"  # expect 403
+docker logs latentguard-proxy 2>&1 | grep ML_DISABLED                                 # expect kill-switch banner
+```
+
 ---
 
 ## 5. Known gotchas — already fixed, do not re-break
@@ -184,6 +206,10 @@ Next round of TPR improvement is feature-engineering work (n-gram entropy, paylo
 15. **Every DVWA form is its own OOD shape.** Each form (login, setup, security level, exec, csrf, xss_s, ...) submits a unique field set together with the 32-char hex `user_token`. The base `crawl_dvwa_benign.py` covers GETs but only does login POSTs in the auth loop; users clicking through DVWA otherwise hit OOD shapes one by one (Create/Reset Database trip-wired the consensus engine, so did changing security level, etc.). `datasets/prime_dvwa_full.py` is a one-shot script that logs in then loops through every form-POST endpoint with realistic safe values and a fresh per-request token. Re-run after introducing a new DVWA module or when the AE starts blocking new browser flows.
 16. **DVWA sets multiple `Set-Cookie` headers per response (`security=`, `PHPSESSID=`).** A `dict((k.lower(), v) for k, v in r.getheaders())` collapses them and only the last wins, which silently breaks session continuity in any crawler that uses that pattern. Use `[v for k, v in r.getheaders() if k.lower() == "set-cookie"]` to keep the list, then merge into a Cookie jar. Same fix should apply to `crawl_dvwa_benign.py` if the cookie issue ever resurfaces.
 17. **Consensus threshold = 0.75 (was 0.65).** The original 0.65 default tipped on benign POSTs once `rule_score=0.43` (CRS Host-header check leak) plus moderate AE/HDB scores summed to ~0.7. The fix is twofold: (a) widen training distribution as documented in #14/#15, (b) raise the threshold so genuine benign requests have margin. Real attacks score 0.94+, so 0.75 doesn't weaken detection. Update via `PUT /api/consensus/config`; persisted in Mongo `ml_config`.
+18. **`ML_DISABLED` is *not* the same as safe-mode — keep the audit semantics distinct.** Both routes the request through `decision.FromCorazaOnly`, but they answer different questions in the audit log:
+    - **Safe mode** (`safe.Get() == true`): real ML outage, heartbeat tripped → `fallback_used=true`, reason `"ML in safe mode"`. This is a degraded-service signal the operator should investigate.
+    - **`ML_DISABLED=true`** (env var, set on `fyp-1` branch): intentional scope gating for the 30 % submission → `fallback_used=false`, reason `"ML disabled (FYP-I scope: M1+M2+M3+M7)"`. The system is operating *exactly as configured*; nothing to investigate.
+    The kill-switch is wired in `proxy/cmd/proxy/main.go` (reads env, also skips heartbeat goroutine) and `proxy/internal/pipeline/pipeline.go` (extra `case mlDisabled:` arm in the verdict switch, *before* the safe-mode case so the more specific signal wins). Don't collapse these into one path — `fallback_used` is what the dashboard's "ML reliability" panel keys off, and conflating intentional gating with outages would corrupt that metric.
 
 ---
 
@@ -215,8 +241,9 @@ After the 2026-04-26 merge, FYP-I scope grew to include M1, M2, M4, M5, M6, M7. 
 
 ## 7. Branch & commit conventions
 
-- **`main`** — protected; the FYP-I 30 % submission scope. Local merges OK with explicit user approval; never push to `origin/main` without explicit user approval.
-- **`feature/fyp-i`** — the historical name for the branch that bundled the original FYP-I baseline + Phase A work; merged into `main` on 2026-04-26 then retired. Future FYP-II work should branch off `main` afresh under `feature/<phase>-<topic>`.
+- **`main`** — the live trunk. Carries the full Phase A ML pipeline (M4+M5+M6+HTTPS+dashboard rework). FYP-II work branches off `main` under `feature/<phase>-<topic>`. Never push to `origin/main` without explicit user approval.
+- **`fyp-1`** (created 2026-04-30, commit `b219548`, on `origin`) — **the 30 % submission snapshot**. Same code as `main` but with `ML_DISABLED=true` set in `infra/docker-compose.yml` so the Phase A ML layer is gated off. This is the branch the supervisor evaluates; it cleanly demonstrates M1+M2+M3+M7 without the in-progress autoencoder mis-classifying benign DVWA traffic. Don't merge `fyp-1` back into `main` — they are deliberately divergent on the ML_DISABLED line and the diff *is* the demarcation between the 30 % scope and FYP-II Phase A work. To switch demo modes: `git checkout fyp-1` (rule-only) vs `git checkout main` (full ML).
+- **`feature/fyp-i`** — historical; bundled the original FYP-I baseline + Phase A work; merged into `main` on 2026-04-26 then retired. Local-only stale branch — safe to delete when convenient.
 - **Commits authored as `Syed Shaheer Khalid <yatoofire@gmail.com>`. Never include Claude / Anthropic attribution lines** — academic submission requirement, user has been explicit.
 - Commit messages: subject + bullet body explaining *why* and *what verified*.
 
