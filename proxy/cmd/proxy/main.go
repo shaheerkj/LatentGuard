@@ -32,6 +32,7 @@ type config struct {
 	mongoURI    string
 	mongoDB     string
 	rulesDir    string
+	mlDisabled  bool
 }
 
 func loadConfig() config {
@@ -47,12 +48,27 @@ func loadConfig() config {
 		mongoURI:    env("MONGO_URI", "mongodb://localhost:27017"),
 		mongoDB:     env("MONGO_DB", "latentguard"),
 		rulesDir:    env("CORAZA_RULES_DIR", "./rules"),
+		mlDisabled:  envBool("ML_DISABLED", false),
 	}
 }
 
 func env(key, def string) string {
 	if v := os.Getenv(key); v != "" {
 		return v
+	}
+	return def
+}
+
+func envBool(key string, def bool) bool {
+	v := os.Getenv(key)
+	if v == "" {
+		return def
+	}
+	switch v {
+	case "1", "true", "TRUE", "True", "yes", "on":
+		return true
+	case "0", "false", "FALSE", "False", "no", "off":
+		return false
 	}
 	return def
 }
@@ -82,7 +98,11 @@ func main() {
 
 	mlc := client.New(cfg.mlURL, cfg.mlTimeout)
 	safe := &pipeline.SafeMode{}
-	go pipeline.Heartbeat(mlc, safe, 5*time.Second)
+	if cfg.mlDisabled {
+		log.Printf("ML_DISABLED=true -- bypassing autoencoder/HDBSCAN/consensus; verdicts come from Coraza alone (FYP-I 30%% scope)")
+	} else {
+		go pipeline.Heartbeat(mlc, safe, 5*time.Second)
+	}
 
 	reverse := httputil.NewSingleHostReverseProxy(upstream)
 	reverse.Director = func(r *http.Request) {
@@ -103,7 +123,7 @@ func main() {
 			_, _ = w.Write([]byte(`{"safe_mode":false}`))
 		}
 	})
-	mux.Handle("/", pipeline.Handler(wafEngine, mlc, store, safe, reverse))
+	mux.Handle("/", pipeline.Handler(wafEngine, mlc, store, safe, cfg.mlDisabled, reverse))
 
 	server := &http.Server{
 		Addr:              cfg.listen,

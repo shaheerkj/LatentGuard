@@ -38,12 +38,17 @@ func (s *SafeMode) Set(b bool) { s.v.Store(b) }
 //   - mlc:     scoring client to the FastAPI service (M4-M6 hosted there)
 //   - store:   Mongo audit writer (M7); may be nil (logging is best-effort)
 //   - safe:    safe-mode flag, toggled by a heartbeat goroutine on ML failure
+//   - mlDisabled: when true, skip the ML call entirely and rely on Coraza only.
+//     Distinct from safe-mode: this is intentional scope gating (FYP-I 30 %
+//     submission claims M1+M2+M3+M7 only), not a transient outage, so audit
+//     rows record fallback_used=false and a clear reason.
 //   - upstream: the protected app
 func Handler(
 	waf *coraza.Engine,
 	mlc *client.MLClient,
 	store *storage.Store,
 	safe *SafeMode,
+	mlDisabled bool,
 	upstream http.Handler,
 ) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -79,6 +84,11 @@ func Handler(
 		}
 
 		switch {
+		case mlDisabled:
+			// FYP-I scope: M1+M2+M3+M7 only. ML layer is implemented but
+			// intentionally bypassed on this branch; not a fallback, so
+			// fallback_used stays false.
+			verdict = decision.FromCorazaOnly(corazaBlocked, insp.AttackMaxSeverity, false, append(ruleReasons, "ML disabled (FYP-I scope: M1+M2+M3+M7)"))
 		case safe.Get():
 			verdict = decision.FromCorazaOnly(corazaBlocked, insp.AttackMaxSeverity, true, append(ruleReasons, "ML in safe mode"))
 		case corazaBlocked:

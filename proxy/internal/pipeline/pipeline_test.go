@@ -64,7 +64,7 @@ func newPipeline(t *testing.T, mlURL string) (http.Handler, *SafeMode) {
 	safe := &SafeMode{}
 	upstream := upstreamServer(t)
 	t.Cleanup(upstream.Close)
-	return Handler(waf, mlc, nil /* nil store ok */, safe, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+	return Handler(waf, mlc, nil /* nil store ok */, safe, false /* mlDisabled */, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		// Forward to the test upstream.
 		req, _ := http.NewRequest(r.Method, upstream.URL+r.URL.RequestURI(), r.Body)
 		req.Header = r.Header

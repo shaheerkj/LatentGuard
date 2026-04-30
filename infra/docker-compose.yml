@@ -59,6 +59,10 @@ services:
       PROXY_UPSTREAM: "http://dvwa:80"
       ML_URL: "http://ml:8000"
       ML_TIMEOUT_MS: "1000"
+      # FYP-I 30 % submission scope: M1+M2+M3+M7 only.
+      # ML layer (M4+M5+M6) is implemented on this branch but bypassed; see
+      # main branch for the Phase A integrated build.
+      ML_DISABLED: "true"
       MONGO_URI: "mongodb://mongo:27017"
       MONGO_DB: "latentguard"
       CORAZA_RULES_DIR: "/etc/coraza/rules"
