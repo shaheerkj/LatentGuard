@@ -6,7 +6,7 @@ This file is loaded into every Claude Code session in this repo. Keep it accurat
 
 ## 1. What this project is
 
-**LatentGuard** is an Adaptive Dual-Layer Web Application Firewall built as a COMSATS University Final Year Project (FYP) by **Syed Shaheer Khalid** (`yatoofire@gmail.com`).
+**LatentGuard** is an Adaptive Dual-Layer Web Application Firewall built as a COMSATS University Final Year Project (FYP) by **Syed Shaheer Khalid** (`shaheerkjaffer@gmail.com`).
 
 The thesis: signature-based WAFs miss novel attacks; pure-ML WAFs hallucinate. LatentGuard chains them — **Coraza (Go-native ModSecurity) for fast deterministic pre-filter**, then a **Python ML scoring service** that fuses an autoencoder (M4), HDBSCAN clustering (M5), and rule signal into a configurable consensus verdict (M6). Suspicious patterns surfaced by mining the audit log (M8) are turned into draft SecLang rules by an **LLM service** (M9), reviewed by a human in the loop (M10), and fed back into Coraza. M11 closes the loop with continuous learning.
 
@@ -314,7 +314,7 @@ After the 2026-04-26 merge, FYP-I scope grew to include M1, M2, M4, M5, M6, M7. 
 - **`fyp-II`** (created 2026-05-22, off `main`) — **the FYP-II working branch**. Swaps DVWA → OWASP Juice Shop, adds `datasets/crawl_juiceshop_benign.py`, and retrains the AE/HDBSCAN on Juice Shop benign traffic. Same WAF code as `main`; the diff is upstream + training-data pipeline. All Phase A/B/C/D work for FYP-II lands here (or in `feature/fyp-ii-*` topic branches off this) and gets merged back into `fyp-II` once verified. Don't merge back to `main` until FYP-II is delivered.
 - **`fyp-1`** (created 2026-04-30, commit `b219548`, on `origin`) — **the 30 % submission snapshot**. Same code as `main` but with `ML_DISABLED=true` set in `infra/docker-compose.yml` so the Phase A ML layer is gated off. This is the branch the supervisor evaluates; it cleanly demonstrates M1+M2+M3+M7 without the in-progress autoencoder mis-classifying benign DVWA traffic. Don't merge `fyp-1` back into `main` — they are deliberately divergent on the ML_DISABLED line and the diff *is* the demarcation between the 30 % scope and FYP-II Phase A work. To switch demo modes: `git checkout fyp-1` (rule-only) vs `git checkout main` (full ML).
 - **`feature/fyp-i`** — historical; bundled the original FYP-I baseline + Phase A work; merged into `main` on 2026-04-26 then retired. Local-only stale branch — safe to delete when convenient.
-- **Commits authored as `Syed Shaheer Khalid <yatoofire@gmail.com>`. Never include Claude / Anthropic attribution lines** — academic submission requirement, user has been explicit.
+- **Commits authored as `Syed Shaheer Khalid <shaheerkjaffer@gmail.com>`. NEVER include `Co-Authored-By: Claude` or any other Claude / Anthropic attribution line in commit messages, PR descriptions, or generated artefacts.** This is an academic FYP — co-authorship by an AI would invalidate the submission. The user has been explicit about this and re-stated it on 2026-05-22. Do not add it under any circumstance, even when the default Claude Code commit footer would include it.
 - Commit messages: subject + bullet body explaining *why* and *what verified*.
 
 ---
@@ -322,7 +322,7 @@ After the 2026-04-26 merge, FYP-I scope grew to include M1, M2, M4, M5, M6, M7. 
 ## 8. Working preferences (from prior sessions)
 
 - **Verify before declaring done.** "It compiles" ≠ "it works". Run the live stack, hit it with curl / replay, check the audit log. The user has corrected this twice.
-- **No Claude attribution in any commit, PR, or generated artefact.** Ever.
+- **No Claude / Anthropic attribution in any commit, PR, or generated artefact.** Ever. No `Co-Authored-By: Claude`. No "Generated with Claude Code" footer. The default Claude Code commit template includes these — strip them.
 - **Terse responses.** Skip restating the prompt and trailing "Summary:" sections.
 - **Ask before risky actions** (force push, branch deletion, dropping containers with named volumes, anything that touches `main`).
 - **FYP-II must stay off `main`** until the user says otherwise — protects the 30 % submission.
