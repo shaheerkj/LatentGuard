@@ -98,29 +98,46 @@
                 <canvas id="chart-traffic" height="120"></canvas>
             </div>
 
-            <div class="card ti-card" id="card-threatintel">
-                <div class="card-header">
-                    <h2>
-                        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/><polyline points="9 12 11 14 15 10"/></svg>
-                        Threat intel
-                    </h2>
-                    <span class="pill" id="ti-pill">checking...</span>
+            <div class="split-2">
+                <div class="card ti-card" id="card-threatintel">
+                    <div class="card-header">
+                        <h2>
+                            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/><polyline points="9 12 11 14 15 10"/></svg>
+                            Blocklist status
+                        </h2>
+                        <span class="pill" id="ti-pill">checking...</span>
+                    </div>
+                    <div class="ti-headline">
+                        <span class="ti-count" id="ti-entries">-</span>
+                        <span class="ti-count-label">CIDRs<br>deny-listed</span>
+                    </div>
+                    <dl class="ti-meta">
+                        <div class="ti-meta-item"><dt>Status</dt><dd id="ti-enabled">-</dd></div>
+                        <div class="ti-meta-item"><dt>Last sync</dt><dd id="ti-last-sync">-</dd></div>
+                        <div class="ti-meta-item"><dt>Payload</dt><dd id="ti-bytes">-</dd></div>
+                        <div class="ti-meta-item"><dt>Last error</dt><dd id="ti-error">(none)</dd></div>
+                    </dl>
                 </div>
-                <div class="ti-headline">
-                    <span class="ti-count" id="ti-entries">-</span>
-                    <span class="ti-count-label">CIDRs in the deny list</span>
+
+                <div class="card ti-card" id="card-threatintel-sources">
+                    <div class="card-header">
+                        <h2>
+                            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><line x1="2" y1="12" x2="22" y2="12"/><path d="M12 2a15.3 15.3 0 0 1 4 10 15.3 15.3 0 0 1-4 10 15.3 15.3 0 0 1-4-10 15.3 15.3 0 0 1 4-10z"/></svg>
+                            Intel sources
+                        </h2>
+                        <span class="card-sub">Module 3 / FE-2</span>
+                    </div>
+                    <div class="ti-sources" id="ti-sources-chips" style="margin-top: 4px;">
+                        <span class="ti-source muted">loading sources...</span>
+                    </div>
+                    <p class="hint" style="margin-top: 18px;">
+                        Refreshed every <code>THREATINTEL_REFRESH_HOURS</code> hours.
+                        Atomically swapped into Coraza via <code>Engine.Reload()</code> &mdash;
+                        no proxy restart per refresh. Source IP blocking fires at
+                        Coraza <strong>phase 1</strong> via rule&nbsp;<code>1500001</code>,
+                        before content rules see the request.
+                    </p>
                 </div>
-                <dl class="ti-meta">
-                    <div class="ti-meta-item"><dt>Status</dt><dd id="ti-enabled">-</dd></div>
-                    <div class="ti-meta-item"><dt>Last sync</dt><dd id="ti-last-sync">-</dd></div>
-                    <div class="ti-meta-item"><dt>Payload</dt><dd id="ti-bytes">-</dd></div>
-                    <div class="ti-meta-item"><dt>Last error</dt><dd id="ti-error">(none)</dd></div>
-                </dl>
-                <h4 class="consensus-label" style="margin: 4px 0 8px;">Sources</h4>
-                <div class="ti-sources" id="ti-sources-chips">
-                    <span class="ti-source muted">-</span>
-                </div>
-                <p class="hint" style="margin-top: 14px;">Module 3 / FE-2. Refreshed every <code>THREATINTEL_REFRESH_HOURS</code> hours, atomically swapped into Coraza via <code>Engine.Reload()</code> -- no proxy restart. Rule ID <code>1500001</code>, phase 1.</p>
             </div>
         </section>
 
