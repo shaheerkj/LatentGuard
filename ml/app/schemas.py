@@ -34,7 +34,7 @@ class ScoreRequest(BaseModel):
 
 
 class ScoreResponse(BaseModel):
-    action: Literal["allow", "review", "block"]
+    action: Literal["allow", "block"]
     score: float
     anomaly_score: float
     outlier_score: float

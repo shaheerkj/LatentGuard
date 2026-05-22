@@ -410,8 +410,9 @@ tbody tr:last-child td { border-bottom: none; }
     border: 1px solid transparent;
 }
 .action-allow  { background: rgba(16, 185, 129, 0.1);  color: var(--success); border-color: rgba(16,185,129,0.25); }
-.action-review { background: rgba(245, 158, 11, 0.1);  color: var(--warning); border-color: rgba(245,158,11,0.25); }
 .action-block  { background: rgba(239, 68, 68, 0.1);   color: var(--danger);  border-color: rgba(239,68,68,0.25); }
+/* Historical 'review' rows from before the binary-verdict change land here. */
+.action-review { background: var(--surface-3); color: var(--text-muted); border-color: var(--border); }
 
 /* ---------- nav phase-D placeholders ---------- */
 .nav-link--soon { opacity: 0.5; }

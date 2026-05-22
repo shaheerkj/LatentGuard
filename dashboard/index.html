@@ -55,16 +55,6 @@
                     <div class="kpi-value" id="kpi-blocked">-</div>
                     <div class="kpi-foot">denied by Coraza or consensus</div>
                 </div>
-                <div class="card kpi kpi--review">
-                    <div class="kpi-top">
-                        <span class="kpi-label">Under review</span>
-                        <span class="kpi-icon" aria-hidden="true">
-                            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8S1 12 1 12z"/><circle cx="12" cy="12" r="3"/></svg>
-                        </span>
-                    </div>
-                    <div class="kpi-value" id="kpi-review">-</div>
-                    <div class="kpi-foot">borderline -- passed but flagged</div>
-                </div>
                 <div class="card kpi kpi--rate">
                     <div class="kpi-top">
                         <span class="kpi-label">Block rate</span>
@@ -232,7 +222,7 @@
                         <input type="range" min="0" max="100" id="threshold">
                         <span class="slider-val" id="threshold-v">0.65</span>
                     </div>
-                    <span class="card-sub">Combined score at or above this becomes "block". A 0.15-band below is "review".</span>
+                    <span class="card-sub">Combined score at or above this becomes "block". Below allows the request through. Binary verdict -- no per-request review band.</span>
                 </div>
 
                 <div class="consensus-row">
@@ -290,7 +280,6 @@
                             <select id="lf-action">
                                 <option value="">all</option>
                                 <option value="block">block</option>
-                                <option value="review">review</option>
                                 <option value="allow">allow</option>
                             </select>
                         </label>

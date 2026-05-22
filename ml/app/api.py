@@ -38,7 +38,6 @@ def get_metrics() -> dict[str, Any]:
         col = requests_collection()
         total = col.count_documents({})
         blocked = col.count_documents({"final_action": "block"})
-        review = col.count_documents({"final_action": "review"})
         allowed = col.count_documents({"final_action": "allow"})
         block_rate = round(blocked / total, 4) if total else 0.0
         # 95th-percentile latency over the last 1000 requests.
@@ -52,7 +51,6 @@ def get_metrics() -> dict[str, Any]:
         return {
             "total_requests": total,
             "blocked": blocked,
-            "review": review,
             "allowed": allowed,
             "block_rate": block_rate,
             "p95_latency_ms": p95,
@@ -66,7 +64,7 @@ def get_metrics() -> dict[str, Any]:
 def get_logs(
     limit: int = Query(default=50, ge=1, le=500),
     offset: int = Query(default=0, ge=0),
-    action: str | None = Query(default=None, regex="^(allow|review|block)$"),
+    action: str | None = Query(default=None, regex="^(allow|block)$"),
     method: str | None = Query(default=None, regex="^[A-Z]{3,7}$"),
     source_ip: str | None = Query(default=None, max_length=64),
     path_contains: str | None = Query(default=None, max_length=200),
@@ -163,7 +161,7 @@ def get_timeseries(minutes: int = Query(default=60, ge=5, le=1440)) -> dict[str,
             {"$sort": {"_id.minute": 1}},
         ]
         rows = list(col.aggregate(pipeline))
-        series: dict[str, list[dict[str, Any]]] = {"allow": [], "review": [], "block": []}
+        series: dict[str, list[dict[str, Any]]] = {"allow": [], "block": []}
         for r in rows:
             action = r["_id"]["action"]
             if action in series:

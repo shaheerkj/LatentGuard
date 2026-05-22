@@ -15,7 +15,6 @@ const els = {
     kpi: {
         total:   document.getElementById("kpi-total"),
         blocked: document.getElementById("kpi-blocked"),
-        review:  document.getElementById("kpi-review"),
         rate:    document.getElementById("kpi-rate"),
         p95:     document.getElementById("kpi-p95"),
     },
@@ -194,7 +193,6 @@ async function refreshMetrics() {
     if (!m) return;
     els.kpi.total.textContent   = fmt(m.total_requests);
     els.kpi.blocked.textContent = fmt(m.blocked);
-    els.kpi.review.textContent  = fmt(m.review);
     els.kpi.rate.textContent    = pct(m.block_rate);
     els.kpi.p95.textContent     = `${fmt(m.p95_latency_ms)} ms`;
 }
@@ -216,7 +214,7 @@ async function refreshTraffic() {
         type: "line",
         data: {
             labels: labels.map(formatTime),
-            datasets: [data("allow", "#10B981"), data("review", "#F59E0B"), data("block", "#EF4444")],
+            datasets: [data("allow", "#10B981"), data("block", "#EF4444")],
         },
         options: {
             responsive: true,

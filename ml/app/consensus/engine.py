@@ -1,12 +1,22 @@
 """M6 Consensus engine: reduce (autoencoder, hdbscan, rule) into one verdict.
 
-Three modes, taken straight from the SRS Presentation mockup:
+The verdict is BINARY -- allow or block -- because that is what real WAFs
+emit at the edge. There is no human-in-the-loop band for individual
+requests (that is intercept-proxy behaviour like Burp Suite Repeater, not
+WAF behaviour). HITL in this project lives at the *rule* layer (M10):
+when M9 drafts a SecRule from mined attack patterns, a human approves
+that rule before it's merged into Coraza. Per-request approval would be
+unworkable at line speed and isn't a feature any commercial WAF ships.
+The original three-arm decision was a design carryover from the SRS
+mockup; corrected 2026-05-22.
+
+Three modes, taken from the SRS Presentation mockup:
 
   weighted - normalized weighted sum of the three [0,1] scores. Block when
-             the combined score crosses the decision threshold; review band
-             is a configurable margin below.
+             the combined score crosses the decision threshold; otherwise
+             allow.
   majority - each model votes block/allow on its own per-model threshold.
-             Majority of votes wins.
+             Majority (>=2/3) blocks.
   strict   - logical OR. ANY model crossing its per-model threshold blocks.
              Most conservative, useful when false negatives are costly.
 
@@ -17,8 +27,6 @@ from __future__ import annotations
 
 from dataclasses import dataclass, field
 from enum import Enum
-
-REVIEW_MARGIN = 0.15  # combined-score band below threshold that maps to "review"
 
 
 class ConsensusMode(str, Enum):
@@ -50,7 +58,7 @@ class ConsensusConfig:
 
 @dataclass
 class Decision:
-    action: str  # allow / review / block
+    action: str  # allow / block (binary -- no per-request review band)
     score: float
     reasons: list[str] = field(default_factory=list)
 
@@ -83,8 +91,6 @@ def decide(ae_score: float, hdb_score: float, rule_score: float, cfg: ConsensusC
         ]
         if votes >= 2:
             return Decision(action="block", score=score, reasons=reasons)
-        if votes == 1:
-            return Decision(action="review", score=score, reasons=reasons)
         return Decision(action="allow", score=score, reasons=reasons)
 
     # weighted
@@ -98,8 +104,6 @@ def decide(ae_score: float, hdb_score: float, rule_score: float, cfg: ConsensusC
     ]
     if score >= cfg.threshold:
         return Decision(action="block", score=score, reasons=reasons)
-    if score >= cfg.threshold - REVIEW_MARGIN:
-        return Decision(action="review", score=score, reasons=reasons)
     return Decision(action="allow", score=score, reasons=reasons)
 
 
