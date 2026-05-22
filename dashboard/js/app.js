@@ -2,6 +2,10 @@
 // All data flows through the FastAPI ML service (CORS-enabled).
 
 const API_BASE = window.LATENTGUARD_API || "http://localhost:8000";
+// Proxy exposes its own operator endpoints (/__healthz, /__safe-mode,
+// /__threatintel) on a different port than the ML service. Override via
+// window.LATENTGUARD_PROXY if the dashboard is served from elsewhere.
+const PROXY_BASE = window.LATENTGUARD_PROXY || "http://localhost:8080";
 const REFRESH_MS = 5000;
 
 const els = {
@@ -39,6 +43,15 @@ const els = {
         mcs:      document.getElementById("hdb-mcs"),
         status:   document.getElementById("hdb-status"),
     },
+    ti: {
+        pill:     document.getElementById("ti-pill"),
+        enabled:  document.getElementById("ti-enabled"),
+        entries:  document.getElementById("ti-entries"),
+        lastSync: document.getElementById("ti-last-sync"),
+        bytes:    document.getElementById("ti-bytes"),
+        sources:  document.getElementById("ti-sources"),
+        error:    document.getElementById("ti-error"),
+    },
     consensus: {
         modes:    document.querySelectorAll('input[name="mode"]'),
         wAe:      document.getElementById("w-ae"),
@@ -73,15 +86,19 @@ els.routes.forEach(a => a.addEventListener("click", () => setActiveRoute(a.datas
 els.logFilter.addEventListener("change", refreshLogs);
 
 async function fetchJSON(path, init) {
+    return fetchJSONFrom(API_BASE, path, init);
+}
+
+async function fetchJSONFrom(base, path, init) {
     try {
-        const res = await fetch(`${API_BASE}${path}`, init);
+        const res = await fetch(`${base}${path}`, init);
         if (!res.ok) {
             const detail = await res.text();
             throw new Error(`HTTP ${res.status}: ${detail.slice(0, 120)}`);
         }
         return await res.json();
     } catch (err) {
-        console.warn("fetch failed", path, err);
+        console.warn("fetch failed", `${base}${path}`, err);
         return null;
     }
 }
@@ -339,10 +356,30 @@ async function refreshDecisions() {
 
 /* ------------------------------- main loop ------------------------------- */
 
+async function refreshThreatIntel() {
+    const s = await fetchJSONFrom(PROXY_BASE, "/__threatintel");
+    if (!s) {
+        els.ti.pill.textContent = "proxy unreachable";
+        els.ti.pill.className = "pill pill--danger";
+        return;
+    }
+    const ok = s.enabled && s.entry_count > 0 && !s.last_error;
+    els.ti.pill.textContent = !s.enabled ? "disabled"
+        : s.last_error ? "stale" : `${fmt(s.entry_count)} entries`;
+    els.ti.pill.className = "pill " + (!s.enabled ? "pill--warn"
+        : ok ? "pill--ok" : "pill--danger");
+    els.ti.enabled.textContent  = s.enabled ? "yes" : "no";
+    els.ti.entries.textContent  = fmt(s.entry_count);
+    els.ti.lastSync.textContent = formatDateTime(s.last_sync);
+    els.ti.bytes.textContent    = s.bytes_written != null ? `${fmt(s.bytes_written)} B` : "-";
+    els.ti.sources.textContent  = (s.sources || []).join(", ") || "-";
+    els.ti.error.textContent    = s.last_error || "(none)";
+}
+
 async function tick() {
     await Promise.all([
         refreshHealth(), refreshMetrics(), refreshTraffic(), refreshLogs(), refreshRules(),
-        refreshModels(), refreshDecisions(),
+        refreshModels(), refreshDecisions(), refreshThreatIntel(),
     ]);
 }
 

@@ -153,12 +153,23 @@ func main() {
 		r.Host = upstream.Host
 	}
 
+	// CORS for the dashboard (served from a different origin than the proxy)
+	// to read these read-only status endpoints. Wide-open '*' is fine for
+	// operator status; the protected app traffic on '/' is unaffected.
+	corsHeaders := func(w http.ResponseWriter) {
+		w.Header().Set("Access-Control-Allow-Origin", "*")
+		w.Header().Set("Access-Control-Allow-Methods", "GET, OPTIONS")
+		w.Header().Set("Access-Control-Allow-Headers", "Content-Type")
+	}
 	mux := http.NewServeMux()
 	mux.HandleFunc("/__healthz", func(w http.ResponseWriter, _ *http.Request) {
+		corsHeaders(w)
 		w.WriteHeader(http.StatusOK)
 		_, _ = w.Write([]byte("ok"))
 	})
 	mux.HandleFunc("/__safe-mode", func(w http.ResponseWriter, _ *http.Request) {
+		corsHeaders(w)
+		w.Header().Set("Content-Type", "application/json")
 		if safe.Get() {
 			_, _ = w.Write([]byte(`{"safe_mode":true}`))
 		} else {
@@ -166,6 +177,7 @@ func main() {
 		}
 	})
 	mux.HandleFunc("/__threatintel", func(w http.ResponseWriter, _ *http.Request) {
+		corsHeaders(w)
 		w.Header().Set("Content-Type", "application/json")
 		_ = json.NewEncoder(w).Encode(tiManager.Status())
 	})

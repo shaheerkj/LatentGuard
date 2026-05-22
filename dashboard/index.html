@@ -48,6 +48,22 @@
                 </div>
                 <canvas id="chart-traffic" height="120"></canvas>
             </div>
+
+            <div class="card" id="card-threatintel">
+                <div class="card-header">
+                    <h2>Threat intel (M3 / FE-2)</h2>
+                    <span class="pill" id="ti-pill">checking...</span>
+                </div>
+                <dl class="model-meta">
+                    <dt>Enabled</dt><dd id="ti-enabled">-</dd>
+                    <dt>Entries</dt><dd id="ti-entries">-</dd>
+                    <dt>Last sync</dt><dd id="ti-last-sync">-</dd>
+                    <dt>Bytes written</dt><dd id="ti-bytes">-</dd>
+                    <dt>Sources</dt><dd id="ti-sources">-</dd>
+                    <dt>Last error</dt><dd id="ti-error">-</dd>
+                </dl>
+                <p class="hint">CIDR blocklist pulled from public sources (default Spamhaus DROP+EDROP). Refreshed every <code>THREATINTEL_REFRESH_HOURS</code> hours, atomically swapped into Coraza via <code>Engine.Reload()</code> with no proxy restart. Rule ID 1500001, phase 1.</p>
+            </div>
         </section>
 
         <!-- ====================== ANOMALY MODELS (M3) ======================= -->
