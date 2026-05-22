@@ -59,8 +59,9 @@ submission-snapshot `fyp-1` branch are explained in `docs/preferences.md`.
 
 ## Where everything is
 
+**Working docs (`docs/`):**
 - `docs/architecture.md` — full module table, data flow, repo layout, source
-  documents (SRS, mockups).
+  documents (SRS, SDS, mockups).
 - `docs/gotchas.md` — 28 landmines, each with the *why*. Tagged
   `[PROXY] [ML] [INFRA] [UI] [DATA] [DESIGN]` so you can grep by area.
 - `docs/verified-states.md` — historical snapshots with re-verify recipes.
@@ -73,9 +74,20 @@ submission-snapshot `fyp-1` branch are explained in `docs/preferences.md`.
   would unlock real ML contribution (n-grams, CRS anomaly_score, per-shape
   AE, contrastive loss).
 
+**FYP submission documents (`fyp-documents/`):**
+- `fyp-documents/fyp-I (Software Requirement Specification)/SRS Document.md`
+  — canonical SRS in markdown. Match this when implementing.
+- `fyp-documents/fyp-I (Software Design Specification) - 30%/LatentGuard - FYP-I SDS - 30% implementation.md`
+  — canonical SDS in markdown (Chapter 3 design + architecture, 717 lines).
+  Converted from the .docx via `.claude/docx2md.py` on 2026-05-22.
+- Same folders carry the corresponding `.docx` and `.pptx` versions. The
+  PPTX mockups are **binding** for UI work.
+- `fyp-documents/fyp-0/` — earliest scoping docs (superseded but kept).
+
 When working on a subsystem, the fast path is:
 `grep '\[PROXY\]' docs/gotchas.md` (or `[ML]`, `[INFRA]`, etc.) then read
-the architecture file for that area.
+the architecture file for that area. When implementing a feature, also
+search the SRS / SDS markdown to confirm the spec.
 
 ---
 

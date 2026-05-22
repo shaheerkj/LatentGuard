@@ -100,11 +100,32 @@ docs/                   this directory; see CLAUDE.md for the index
 
 ## Source-of-truth documents
 
-Don't regenerate from scratch — read them.
+All FYP submission documents live under `fyp-documents/`. Don't regenerate
+from scratch — read them. Paths quoted below use double-quotes because the
+folder names contain spaces and parentheses.
 
-- `SRS Document.md` — full Software Requirements Specification.
-- `SRS Presentation.pptx` — slides + UI mockups + use-case diagram. PPTX is a
-  zip; extract with `unzip` and read images from `ppt/media/`. The mockups
+**`fyp-documents/fyp-I (Software Requirement Specification)/`** — the SRS bundle.
+- `SRS Document.md` — full Software Requirements Specification (markdown,
+  this is the canonical text).
+- `FYP-I SRS.docx` — Word version of the same SRS.
+- `SRS Presentation.pptx` — slides + UI mockups + use-case diagram. PPTX is
+  a zip; extract with `unzip` and read images from `ppt/media/`. The mockups
   are **binding** for UI work — the dashboard must converge on them.
-- `FYP-I SRS.docx`, `FYP-0 Scope *` — earlier scoping docs; SRS Document.md
-  supersedes.
+
+**`fyp-documents/fyp-I (Software Design Specification) - 30%/`** — the SDS
+bundle (latest, FYP-I 30 % submission).
+- `LatentGuard - FYP-I SDS - 30% implementation.md` — Software Design
+  Specification in markdown (auto-converted from the docx via
+  `.claude/docx2md.py` on 2026-05-22; the canonical text source for
+  architecture / design questions). 717 lines, covers Chapter 3 design and
+  architecture in depth.
+- `LatentGuard - FYP-I SDS - 30% implementation.docx` — original Word
+  version of the same SDS.
+- `SDS Presentation.pptx` — slides used in the 30 % defense.
+
+**`fyp-documents/fyp-0/`** — earliest scoping docs, superseded by SRS + SDS
+but kept for reference.
+- `FYP-0 Scope Submission.docx`, `FYP-0 Scope Pitch.pptx`.
+
+When working on a design question, prefer the markdown files (greppable).
+When working on UI / dashboard layout, the PPTX mockups are authoritative.
