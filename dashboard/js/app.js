@@ -20,7 +20,25 @@ const els = {
         p95:     document.getElementById("kpi-p95"),
     },
     logBody:    document.getElementById("log-tbody"),
-    logFilter:  document.getElementById("log-filter"),
+    log: {
+        action:  document.getElementById("lf-action"),
+        method:  document.getElementById("lf-method"),
+        ip:      document.getElementById("lf-ip"),
+        path:    document.getElementById("lf-path"),
+        limit:   document.getElementById("lf-limit"),
+        reset:   document.getElementById("lf-reset"),
+        prev:    document.getElementById("lf-prev"),
+        next:    document.getElementById("lf-next"),
+        counter: document.getElementById("lf-counter"),
+    },
+    drawer: {
+        root:     document.getElementById("drawer"),
+        backdrop: document.getElementById("drawer-backdrop"),
+        title:    document.getElementById("drawer-title"),
+        subtitle: document.getElementById("drawer-subtitle"),
+        body:     document.getElementById("drawer-body"),
+        close:    document.getElementById("drawer-close"),
+    },
     rulesBody:  document.getElementById("rules-tbody"),
 
     ae: {
@@ -83,7 +101,60 @@ function setActiveRoute(route) {
 }
 
 els.routes.forEach(a => a.addEventListener("click", () => setActiveRoute(a.dataset.route)));
-els.logFilter.addEventListener("change", refreshLogs);
+
+// Log view state — the page index is kept here so it survives auto-refresh
+// ticks; filter changes reset it to 0.
+const logState = { offset: 0, limit: 50, total: 0 };
+function bindLogFilter(el, debounceMs = 0) {
+    let timer = null;
+    const handler = () => {
+        clearTimeout(timer);
+        timer = setTimeout(() => { logState.offset = 0; refreshLogs(); }, debounceMs);
+    };
+    el.addEventListener(debounceMs ? "input" : "change", handler);
+}
+bindLogFilter(els.log.action);
+bindLogFilter(els.log.method);
+bindLogFilter(els.log.ip, 250);
+bindLogFilter(els.log.path, 250);
+els.log.limit.addEventListener("change", () => {
+    logState.limit = Number(els.log.limit.value) || 50;
+    logState.offset = 0;
+    refreshLogs();
+});
+els.log.prev.addEventListener("click", () => {
+    logState.offset = Math.max(0, logState.offset - logState.limit);
+    refreshLogs();
+});
+els.log.next.addEventListener("click", () => {
+    if (logState.offset + logState.limit < logState.total) {
+        logState.offset += logState.limit;
+        refreshLogs();
+    }
+});
+els.log.reset.addEventListener("click", () => {
+    els.log.action.value = "";
+    els.log.method.value = "";
+    els.log.ip.value = "";
+    els.log.path.value = "";
+    els.log.limit.value = "50";
+    logState.limit = 50;
+    logState.offset = 0;
+    refreshLogs();
+});
+
+// Drawer wiring -- ESC + backdrop click + X button all close.
+function closeDrawer() {
+    els.drawer.backdrop.hidden = true;
+    els.drawer.root.classList.remove("drawer--open");
+}
+els.drawer.close.addEventListener("click", closeDrawer);
+els.drawer.backdrop.addEventListener("click", (e) => {
+    if (e.target === els.drawer.backdrop) closeDrawer();
+});
+document.addEventListener("keydown", (e) => {
+    if (e.key === "Escape" && !els.drawer.backdrop.hidden) closeDrawer();
+});
 
 async function fetchJSON(path, init) {
     return fetchJSONFrom(API_BASE, path, init);
@@ -180,25 +251,130 @@ function formatDateTime(iso) {
 }
 
 async function refreshLogs() {
-    const action = els.logFilter.value;
-    const path = action ? `/api/logs?action=${action}&limit=100` : "/api/logs?limit=100";
-    const rows = await fetchJSON(path);
-    if (!rows) return;
-    if (rows.length === 0) {
-        els.logBody.innerHTML = `<tr><td colspan="8" class="empty">No matching requests yet.</td></tr>`;
+    const q = new URLSearchParams();
+    q.set("limit", String(logState.limit));
+    q.set("offset", String(logState.offset));
+    if (els.log.action.value) q.set("action", els.log.action.value);
+    if (els.log.method.value) q.set("method", els.log.method.value);
+    if (els.log.ip.value.trim())   q.set("source_ip", els.log.ip.value.trim());
+    if (els.log.path.value.trim()) q.set("path_contains", els.log.path.value.trim());
+
+    const data = await fetchJSON(`/api/logs?${q.toString()}`);
+    if (!data) {
+        els.logBody.innerHTML = `<tr><td colspan="8" class="empty">Storage unreachable. Retrying...</td></tr>`;
         return;
     }
-    els.logBody.innerHTML = rows.map(r => `
-        <tr>
-            <td>${formatTime(r.timestamp)}</td>
-            <td>${r.source_ip ?? "-"}</td>
-            <td>${r.method}</td>
-            <td>${truncate(r.path, 60)}</td>
-            <td><span class="action-tag action-${r.final_action}">${r.final_action}</span></td>
-            <td>${fmt3(r.ml_score ?? 0)}</td>
-            <td>${(r.rule_hits || []).join(", ") || "-"}</td>
-            <td>${r.latency_ms} ms</td>
-        </tr>`).join("");
+    const { rows = [], total = 0, offset = 0, limit = logState.limit } = data;
+    logState.total = total;
+    logState.offset = offset;
+
+    if (rows.length === 0) {
+        els.logBody.innerHTML = `<tr><td colspan="8" class="empty">No requests match the current filters.</td></tr>`;
+    } else {
+        els.logBody.innerHTML = rows.map(r => `
+            <tr data-req-id="${r.request_id || ''}">
+                <td>${formatTime(r.timestamp)}</td>
+                <td>${r.source_ip ?? "-"}</td>
+                <td><span class="method-tag">${r.method}</span></td>
+                <td title="${escapeHtml(r.path || '')}">${truncate(r.path, 70)}</td>
+                <td><span class="action-tag action-${r.final_action}">${r.final_action}</span></td>
+                <td>${fmt3(r.ml_score ?? 0)}</td>
+                <td class="rule-hits-cell">${formatRuleHits(r.rule_hits)}</td>
+                <td>${r.latency_ms} ms</td>
+            </tr>`).join("");
+        // Attach click handlers after render.
+        els.logBody.querySelectorAll("tr[data-req-id]").forEach(tr => {
+            tr.addEventListener("click", () => openRequestDrawer(tr.dataset.reqId));
+        });
+    }
+
+    // Pager.
+    const from = total ? offset + 1 : 0;
+    const to = Math.min(offset + rows.length, total);
+    els.log.counter.textContent = `${from}-${to} of ${fmt(total)}`;
+    els.log.prev.disabled = offset === 0;
+    els.log.next.disabled = offset + limit >= total;
+}
+
+function formatRuleHits(hits) {
+    if (!hits || hits.length === 0) return "-";
+    const shown = hits.slice(0, 3).join(", ");
+    return hits.length > 3
+        ? `${shown} <span class="muted">+${hits.length - 3}</span>`
+        : shown;
+}
+
+function escapeHtml(s) {
+    return String(s ?? "")
+        .replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;")
+        .replace(/"/g, "&quot;").replace(/'/g, "&#39;");
+}
+
+async function openRequestDrawer(requestId) {
+    if (!requestId) return;
+    els.drawer.backdrop.hidden = false;
+    els.drawer.root.classList.add("drawer--open");
+    els.drawer.title.textContent = "Request detail";
+    els.drawer.subtitle.textContent = requestId;
+    els.drawer.body.innerHTML = `<p class="empty">Loading...</p>`;
+    const r = await fetchJSON(`/api/logs/${encodeURIComponent(requestId)}`);
+    if (!r) {
+        els.drawer.body.innerHTML = `<p class="empty">Failed to load request ${escapeHtml(requestId)}.</p>`;
+        return;
+    }
+    els.drawer.title.textContent = `${r.method} ${truncate(r.path, 60)}`;
+    els.drawer.subtitle.textContent = `${requestId} · ${formatDateTime(r.timestamp)} · ${r.latency_ms} ms`;
+    const f = r.features || {};
+    const features = Object.entries(f).map(([k, v]) =>
+        `<div class="kv"><dt>${k}</dt><dd>${typeof v === "number" ? Number(v).toFixed(4) : String(v)}</dd></div>`
+    ).join("");
+    const reasons = (r.reasons || []).map(x => `<li>${escapeHtml(x)}</li>`).join("") || `<li class="muted">none</li>`;
+    const headers = Object.entries(r.headers || {}).map(([k, v]) =>
+        `<div class="kv"><dt>${escapeHtml(k)}</dt><dd>${escapeHtml(v)}</dd></div>`
+    ).join("") || `<p class="muted">no headers captured</p>`;
+
+    els.drawer.body.innerHTML = `
+        <section class="drawer-section">
+            <h3>Verdict</h3>
+            <div class="drawer-grid">
+                <div class="kv"><dt>Final action</dt><dd><span class="action-tag action-${r.final_action}">${r.final_action}</span></dd></div>
+                <div class="kv"><dt>ML action</dt><dd>${escapeHtml(r.ml_action || "-")}</dd></div>
+                <div class="kv"><dt>ML score</dt><dd>${fmt3(r.ml_score ?? 0)}</dd></div>
+                <div class="kv"><dt>AE anomaly</dt><dd>${fmt3(r.ml_anomaly_score ?? 0)}</dd></div>
+                <div class="kv"><dt>HDB outlier</dt><dd>${fmt3(r.ml_outlier_score ?? 0)}</dd></div>
+                <div class="kv"><dt>Rule score</dt><dd>${fmt3(r.rule_score ?? 0)}</dd></div>
+                <div class="kv"><dt>Rule action</dt><dd>${escapeHtml(r.rule_action || "-")}</dd></div>
+                <div class="kv"><dt>Fallback used</dt><dd>${r.fallback_used ? "yes" : "no"}</dd></div>
+            </div>
+        </section>
+        <section class="drawer-section">
+            <h3>Reasons</h3>
+            <ul class="reason-list">${reasons}</ul>
+        </section>
+        <section class="drawer-section">
+            <h3>Rule hits (${(r.rule_hits || []).length})</h3>
+            <p class="rule-hits-list">${(r.rule_hits || []).join(", ") || `<span class="muted">none</span>`}</p>
+        </section>
+        <section class="drawer-section">
+            <h3>Request</h3>
+            <div class="drawer-grid">
+                <div class="kv"><dt>Source IP</dt><dd>${escapeHtml(r.source_ip || "-")}</dd></div>
+                <div class="kv"><dt>Method</dt><dd>${escapeHtml(r.method || "-")}</dd></div>
+                <div class="kv"><dt>Path</dt><dd>${escapeHtml(r.path || "-")}</dd></div>
+                <div class="kv"><dt>Canonical path</dt><dd>${escapeHtml(r.canonical_path || "-")}</dd></div>
+                <div class="kv"><dt>Canonical query</dt><dd>${escapeHtml(r.canonical_query || "-")}</dd></div>
+            </div>
+            <h4>Canonical body</h4>
+            <pre class="code-block">${escapeHtml(r.canonical_body || "(empty)")}</pre>
+        </section>
+        <section class="drawer-section">
+            <h3>Features</h3>
+            <div class="drawer-grid">${features || `<p class="muted">no features captured</p>`}</div>
+        </section>
+        <section class="drawer-section">
+            <h3>Headers</h3>
+            <div class="drawer-grid drawer-grid--headers">${headers}</div>
+        </section>`;
 }
 
 async function refreshRules() {
@@ -336,8 +512,9 @@ els.consensus.save.addEventListener("click", async () => {
 });
 
 async function refreshDecisions() {
-    const rows = await fetchJSON("/api/logs?limit=20");
-    if (!rows) return;
+    const data = await fetchJSON("/api/logs?limit=20");
+    if (!data) return;
+    const rows = data.rows || [];
     if (rows.length === 0) {
         els.consensus.decisionsBody.innerHTML = `<tr><td colspan="7" class="empty">No requests yet.</td></tr>`;
         return;

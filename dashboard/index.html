@@ -204,27 +204,70 @@
         <section id="view-logs" class="view">
             <div class="card table-card">
                 <div class="card-header">
-                    <h2>Recent requests</h2>
-                    <div class="filter">
-                        <label>Filter:</label>
-                        <select id="log-filter">
-                            <option value="">All</option>
-                            <option value="block">Blocked</option>
-                            <option value="review">Review</option>
-                            <option value="allow">Allowed</option>
-                        </select>
+                    <h2>Request audit log</h2>
+                    <span class="card-sub">Full-fidelity per-request records from Mongo. Click a row to inspect features, scores, and reasons.</span>
+                </div>
+
+                <div class="log-toolbar">
+                    <div class="log-filters">
+                        <label class="log-field">
+                            <span>Action</span>
+                            <select id="lf-action">
+                                <option value="">all</option>
+                                <option value="block">block</option>
+                                <option value="review">review</option>
+                                <option value="allow">allow</option>
+                            </select>
+                        </label>
+                        <label class="log-field">
+                            <span>Method</span>
+                            <select id="lf-method">
+                                <option value="">any</option>
+                                <option>GET</option>
+                                <option>POST</option>
+                                <option>PUT</option>
+                                <option>DELETE</option>
+                                <option>PATCH</option>
+                                <option>OPTIONS</option>
+                                <option>TRACE</option>
+                            </select>
+                        </label>
+                        <label class="log-field">
+                            <span>Source IP</span>
+                            <input type="text" id="lf-ip" placeholder="e.g. 172.18.0.1" autocomplete="off" spellcheck="false">
+                        </label>
+                        <label class="log-field log-field--wide">
+                            <span>Path contains</span>
+                            <input type="text" id="lf-path" placeholder="e.g. /rest/user" autocomplete="off" spellcheck="false">
+                        </label>
+                        <label class="log-field log-field--narrow">
+                            <span>Per page</span>
+                            <select id="lf-limit">
+                                <option>25</option>
+                                <option selected>50</option>
+                                <option>100</option>
+                                <option>200</option>
+                            </select>
+                        </label>
+                        <button class="btn log-reset" id="lf-reset" type="button">Reset</button>
+                    </div>
+                    <div class="log-pager">
+                        <span class="log-counter" id="lf-counter">- of -</span>
+                        <button class="btn" id="lf-prev" disabled aria-label="Previous page">&larr;</button>
+                        <button class="btn" id="lf-next" disabled aria-label="Next page">&rarr;</button>
                     </div>
                 </div>
+
                 <div class="table-wrap">
-                    <table>
+                    <table class="table-clickable">
                         <thead>
                             <tr>
                                 <th>Time</th>
-                                <th>Source IP</th>
+                                <th>IP</th>
                                 <th>Method</th>
                                 <th>Path</th>
                                 <th>Action</th>
-                                <th>Score</th>
+                                <th>ML score</th>
                                 <th>Rule hits</th>
                                 <th>Latency</th>
                             </tr>
@@ -236,6 +279,22 @@
                 </div>
             </div>
         </section>
+
+        <!-- ===================== REQUEST DETAIL DRAWER ====================== -->
+        <div class="drawer-backdrop" id="drawer-backdrop" hidden>
+            <aside class="drawer" id="drawer" role="dialog" aria-labelledby="drawer-title">
+                <header class="drawer-header">
+                    <div>
+                        <h2 id="drawer-title">Request detail</h2>
+                        <span class="card-sub" id="drawer-subtitle">-</span>
+                    </div>
+                    <button class="btn-icon" id="drawer-close" aria-label="Close (Esc)">&times;</button>
+                </header>
+                <div class="drawer-body" id="drawer-body">
+                    <p class="empty">Loading...</p>
+                </div>
+            </aside>
+        </div>
 
         <!-- ============================ RULES =============================== -->
         <section id="view-rules" class="view">

@@ -65,17 +65,64 @@ def get_metrics() -> dict[str, Any]:
 @router.get("/logs")
 def get_logs(
     limit: int = Query(default=50, ge=1, le=500),
+    offset: int = Query(default=0, ge=0),
     action: str | None = Query(default=None, regex="^(allow|review|block)$"),
-) -> list[dict[str, Any]]:
+    method: str | None = Query(default=None, regex="^[A-Z]{3,7}$"),
+    source_ip: str | None = Query(default=None, max_length=64),
+    path_contains: str | None = Query(default=None, max_length=200),
+    request_id: str | None = Query(default=None, max_length=64),
+) -> dict[str, Any]:
+    """Paginated, filterable audit-log slice.
+
+    Returns ``{rows, total, offset, limit, has_more}``. ``rows`` lists
+    timestamp-descending records matching every supplied filter; ``total``
+    is the unpaginated match count so the dashboard can render "N-M of K".
+    Backwards-compat: callers that previously got a bare list now get a
+    dict; the dashboard handles both shapes.
+    """
     try:
         col = requests_collection()
         query: dict[str, Any] = {}
         if action:
             query["final_action"] = action
-        cursor = col.find(query).sort("timestamp", -1).limit(limit)
-        return [_serialize(doc) for doc in cursor]
+        if method:
+            query["method"] = method.upper()
+        if source_ip:
+            query["source_ip"] = source_ip
+        if request_id:
+            query["request_id"] = request_id
+        if path_contains:
+            # Escape regex specials so user input is a literal substring.
+            import re
+
+            query["path"] = {"$regex": re.escape(path_contains), "$options": "i"}
+
+        total = col.count_documents(query)
+        cursor = col.find(query).sort("timestamp", -1).skip(offset).limit(limit)
+        rows = [_serialize(doc) for doc in cursor]
+        return {
+            "rows": rows,
+            "total": total,
+            "offset": offset,
+            "limit": limit,
+            "has_more": offset + len(rows) < total,
+        }
     except PyMongoError as exc:
         logger.warning("logs: mongo error %s", exc)
+        raise HTTPException(status_code=503, detail="storage unavailable") from exc
+
+
+@router.get("/logs/{request_id}")
+def get_log_detail(request_id: str) -> dict[str, Any]:
+    """Single full audit record by request_id. Returns 404 if missing."""
+    try:
+        col = requests_collection()
+        doc = col.find_one({"request_id": request_id})
+        if not doc:
+            raise HTTPException(status_code=404, detail="request_id not found")
+        return _serialize(doc)
+    except PyMongoError as exc:
+        logger.warning("logs/detail: mongo error %s", exc)
         raise HTTPException(status_code=503, detail="storage unavailable") from exc
 
 
