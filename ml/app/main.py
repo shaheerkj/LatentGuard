@@ -4,10 +4,12 @@ import logging
 import os
 from datetime import datetime, timezone
 
-from fastapi import FastAPI
+from fastapi import Depends, FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
 from .api import router as api_router
+from .auth import require_auth
+from .auth_router import router as auth_router
 from .consensus import ConsensusMode, decide, get_config
 from .models import get_store
 from .schemas import HealthResponse, ScoreRequest, ScoreResponse
@@ -25,11 +27,14 @@ app.add_middleware(
     CORSMiddleware,
     allow_origins=os.environ.get("CORS_ALLOW_ORIGINS", "*").split(","),
     allow_credentials=False,
-    allow_methods=["GET", "POST", "PUT"],
+    allow_methods=["GET", "POST", "PUT", "DELETE", "OPTIONS"],
     allow_headers=["*"],
 )
 
-app.include_router(api_router)
+# Auth endpoints are UN-protected (login + status); everything else under
+# /api/* requires a valid bearer token via the require_auth dependency.
+app.include_router(auth_router)
+app.include_router(api_router, dependencies=[Depends(require_auth)])
 
 
 @app.on_event("startup")

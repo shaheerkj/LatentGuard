@@ -261,3 +261,27 @@ Numbering is preserved from the historical CLAUDE.md so cross-references
     again. Lesson generalises: if you have `display:` on a class that's
     also toggled via `[hidden]`, write the explicit
     `.foo[hidden] { display: none; }` companion rule.
+
+29. **`[DESIGN]` JWT secret is SHARED between the ML service and the Go
+    proxy via the same `JWT_SECRET` env var.** The dashboard authenticates
+    once against the ML side (`POST /api/auth/login`) and gets a single
+    JWT it then attaches to BOTH ML calls (`/api/*`) and proxy operator
+    calls (`/__threatintel`, `/__safe-mode`). Both verifiers (FastAPI's
+    `require_auth` and `proxy/internal/auth.Verifier`) read the same
+    `JWT_SECRET`, validate the same `iss: "latentguard"` claim, and
+    accept the same HS256 algorithm. **Keep the two env values
+    bit-identical in `infra/docker-compose.yml`** — if they drift, the
+    token the dashboard holds works on one side but not the other and
+    the user sees half-broken pages with no obvious diagnostic.
+    `/healthz` and `/__healthz` are deliberately UN-gated on both sides
+    so docker healthchecks (and any external probes) keep working without
+    needing a token. RBAC + per-role gating (mockup M1 + SDS §4.3) is
+    deferred — today's model is single-admin.
+
+30. **`[INFRA]` In docker-compose.yml env values, every literal `$` must
+    be doubled to `$$`.** Compose interpolates `${VAR}` syntax through
+    the env block; bcrypt password hashes contain three `$` characters
+    (`$2b$12$...`) and would be silently mangled into empty strings
+    otherwise. The `ADMIN_PASSWORD_HASH` line in our compose escapes
+    every `$` -> `$$` for this reason. Same applies to any other secret
+    that happens to contain dollar signs.

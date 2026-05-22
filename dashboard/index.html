@@ -28,6 +28,8 @@
         <div class="status">
             <span id="safe-mode-pill" class="pill pill--ok">ML</span>
             <span id="ti-status-pill" class="pill pill--neutral">Threat intel</span>
+            <span class="topbar-user" id="topbar-user" title="Signed in"></span>
+            <button class="btn btn-icon-text" id="logout-btn" type="button" title="Sign out">Sign out</button>
         </div>
     </header>
 
@@ -401,6 +403,20 @@
         </section>
     </main>
 
+    <script src="js/auth.js"></script>
+    <script>
+        // Hard gate: any request to this page without a valid token bounces
+        // to the login screen before any other JS runs. Matches the user's
+        // requirement that 'every req hitting the admin panel is auth
+        // checked no matter the path' -- because there are no other paths
+        // (this is a SPA), guarding the bootstrap is sufficient on the
+        // dashboard side, and the API middleware enforces it on data calls.
+        if (!LG_AUTH.requireAuth()) {
+            // requireAuth() returns false when it has already started a
+            // redirect; stop loading the dashboard JS.
+            throw new Error("redirecting to login");
+        }
+    </script>
     <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.4/dist/chart.umd.min.js"></script>
     <script src="js/app.js"></script>
 </body>

@@ -61,6 +61,16 @@ fuller explanation.
   live stack, hit it with curl / replay, check the audit log. The user
   has corrected this twice.
 
+- **SRS / SDS are aspirational documentation, not a TODO list.** Files
+  under `fyp-documents/` describe the *full envisioned system* — including
+  features written purely to populate academic chapters (full RBAC, MFA,
+  K8s/HPA, federated learning, SHAP/LIME explainability, multi-tenancy,
+  etc.). Some of these will get built, some won't, and some have already
+  deliberately diverged (e.g. binary verdict instead of three-arm — see
+  gotcha #27). Before implementing anything spotted in the SRS/SDS,
+  **ask the user first**. "The SDS says X" is not sufficient justification
+  on its own. Re-stated 2026-05-22 after the user's explicit instruction.
+
 - **Terse responses.** Skip restating the prompt and trailing "Summary:"
   sections.
 

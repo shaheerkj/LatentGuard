@@ -17,6 +17,7 @@ import (
 	"syscall"
 	"time"
 
+	"github.com/shaheerkj/latentguard/proxy/internal/auth"
 	"github.com/shaheerkj/latentguard/proxy/internal/client"
 	"github.com/shaheerkj/latentguard/proxy/internal/coraza"
 	"github.com/shaheerkj/latentguard/proxy/internal/pipeline"
@@ -154,20 +155,29 @@ func main() {
 	}
 
 	// CORS for the dashboard (served from a different origin than the proxy)
-	// to read these read-only status endpoints. Wide-open '*' is fine for
-	// operator status; the protected app traffic on '/' is unaffected.
+	// to read these operator status endpoints. The Authorization header must
+	// be in the allowed list for the browser to send the JWT on real requests.
 	corsHeaders := func(w http.ResponseWriter) {
 		w.Header().Set("Access-Control-Allow-Origin", "*")
 		w.Header().Set("Access-Control-Allow-Methods", "GET, OPTIONS")
-		w.Header().Set("Access-Control-Allow-Headers", "Content-Type")
+		w.Header().Set("Access-Control-Allow-Headers", "Content-Type, Authorization")
 	}
+
+	// JWT shared with the ML service via the JWT_SECRET env var. The
+	// middleware below wraps /__threatintel and /__safe-mode so every
+	// admin-panel request to the proxy is auth-checked.
+	verifier := auth.NewVerifier()
+
 	mux := http.NewServeMux()
+	// /__healthz stays open: docker compose healthchecks call it without
+	// credentials, and it returns nothing sensitive.
 	mux.HandleFunc("/__healthz", func(w http.ResponseWriter, _ *http.Request) {
 		corsHeaders(w)
 		w.WriteHeader(http.StatusOK)
 		_, _ = w.Write([]byte("ok"))
 	})
-	mux.HandleFunc("/__safe-mode", func(w http.ResponseWriter, _ *http.Request) {
+
+	safeModeHandler := http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
 		corsHeaders(w)
 		w.Header().Set("Content-Type", "application/json")
 		if safe.Get() {
@@ -176,11 +186,14 @@ func main() {
 			_, _ = w.Write([]byte(`{"safe_mode":false}`))
 		}
 	})
-	mux.HandleFunc("/__threatintel", func(w http.ResponseWriter, _ *http.Request) {
+	mux.Handle("/__safe-mode", verifier.Middleware(safeModeHandler))
+
+	threatintelHandler := http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
 		corsHeaders(w)
 		w.Header().Set("Content-Type", "application/json")
 		_ = json.NewEncoder(w).Encode(tiManager.Status())
 	})
+	mux.Handle("/__threatintel", verifier.Middleware(threatintelHandler))
 	mux.Handle("/", pipeline.Handler(wafEngine, mlc, store, safe, reverse))
 
 	server := &http.Server{

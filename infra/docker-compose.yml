@@ -35,6 +35,13 @@ services:
       MONGO_URI: mongodb://mongo:27017
       MONGO_DB: latentguard
       CSIC_DIR: /app/csic_raw
+      # Operator auth (shared with the Go proxy via JWT_SECRET). Override
+      # ADMIN_PASSWORD_HASH with a real bcrypt hash before exposing this
+      # stack -- the default below is bcrypt('admin'), demo-grade only.
+      ADMIN_USER: "admin"
+      ADMIN_PASSWORD_HASH: "$$2b$$12$$rW5Klgjyjbq2uYwsd0qGReu7Bk1b8mSufakMHE3dX47aGW4sUsocW"
+      JWT_SECRET: "dev-only-secret-change-me-for-anything-non-local"
+      JWT_TTL_HOURS: "12"
     volumes:
       - ../ml/models:/app/models      # trained artifacts persist & are host-editable
       - ../datasets/raw:/app/csic_raw # cached CSIC downloads
@@ -72,6 +79,11 @@ services:
       THREATINTEL_URL: "https://www.spamhaus.org/drop/drop.txt,https://www.spamhaus.org/drop/edrop.txt"
       THREATINTEL_REFRESH_HOURS: "12"
       THREATINTEL_TIMEOUT_SEC: "20"
+      # Same JWT secret as the ML service -- proxy verifies the same tokens
+      # the dashboard receives from /api/auth/login. /__healthz stays public
+      # so docker healthchecks still work; /__threatintel and /__safe-mode
+      # require a valid bearer token.
+      JWT_SECRET: "dev-only-secret-change-me-for-anything-non-local"
     depends_on:
       - mongo
       - ml

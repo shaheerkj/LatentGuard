@@ -160,16 +160,24 @@ async function fetchJSON(path, init) {
     return fetchJSONFrom(API_BASE, path, init);
 }
 
+// Routed through LG_AUTH.authFetch so the bearer token is attached on every
+// API call. 401 responses kick the user back to the login page (the wrapper
+// throws; our catch swallows so dashboard ticks keep running until the
+// redirect actually navigates away).
 async function fetchJSONFrom(base, path, init) {
     try {
-        const res = await fetch(`${base}${path}`, init);
+        const res = await LG_AUTH.authFetch(`${base}${path}`, init);
         if (!res.ok) {
             const detail = await res.text();
             throw new Error(`HTTP ${res.status}: ${detail.slice(0, 120)}`);
         }
         return await res.json();
     } catch (err) {
-        console.warn("fetch failed", `${base}${path}`, err);
+        // 'unauthenticated' is the marker authFetch throws after starting
+        // a redirect; don't log it as noise.
+        if (err && err.message !== "unauthenticated") {
+            console.warn("fetch failed", `${base}${path}`, err);
+        }
         return null;
     }
 }
@@ -596,6 +604,13 @@ async function tick() {
         refreshModels(), refreshDecisions(), refreshThreatIntel(),
     ]);
 }
+
+// Topbar username + sign-out wiring (auth.js was already loaded by index.html
+// before this script ran).
+const _topbarUser = document.getElementById("topbar-user");
+if (_topbarUser) _topbarUser.textContent = LG_AUTH.user() || "admin";
+const _logout = document.getElementById("logout-btn");
+if (_logout) _logout.addEventListener("click", () => LG_AUTH.logout());
 
 refreshConsensusConfig();
 tick();

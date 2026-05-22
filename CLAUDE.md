@@ -19,6 +19,15 @@ that runs past ~120 lines goes into `docs/` with a one-line pointer below.
 - **Commits are authored as `Syed Shaheer Khalid <shaheerkjaffer@gmail.com>`.**
 - **Verify before declaring done.** "It compiles" ≠ "it works". Hit the live
   stack with curl / the attack battery, check the audit log.
+- **The SRS / SDS in `fyp-documents/` are NOT a binding TODO list.** They
+  document the *aspirational* full system, including features written to
+  fill academic chapters (six layers, MFA, RBAC, K8s, federated learning,
+  SHAP/LIME, etc.). Some of those will be built, some won't, some have
+  already deliberately diverged (e.g. binary verdict instead of
+  allow/review/challenge — see gotcha #27). **Before implementing any
+  feature you spot in the SRS/SDS, ASK the user whether they actually want
+  it built.** "The SDS says X" is *not* sufficient justification on its
+  own. The user re-stated this on 2026-05-22.
 - **FYP-II work stays off `main`.** It protects the submitted 30 % snapshot.
 - **Ask before risky actions:** force push, branch deletion, dropping
   containers with named volumes, anything that touches `main`.
@@ -96,6 +105,14 @@ search the SRS / SDS markdown to confirm the spec.
 Maintain this manually when you commit — it's the fastest answer to
 "what happened last session?".
 
+- *(pending commit)* — operator-panel auth: ML-side JWT login (bcrypt +
+  HS256) gating `/api/*`, shared JWT_SECRET so the Go proxy verifies the
+  same tokens on `/__threatintel` and `/__safe-mode`, dashboard login
+  page + token-aware `fetch` wrapper, sign-out pill in the topbar.
+  `/healthz` and `/__healthz` stay public for docker healthchecks.
+- `c5d0283` — extract SDS docx to markdown + point CLAUDE.md at
+  fyp-documents/.
+- `9b8b984` — docs split into `docs/`, CLAUDE.md slimmed 376 → 119 lines.
 - `45b735a` — remove per-request `review` verdict; WAFs are binary at the
   edge. HITL belongs at the *rule* layer (M10), not on individual requests.
 - `f496a5d` — UI: bigger fonts + projector-friendly layout; split Threat
