@@ -12,12 +12,14 @@ services:
     networks:
       - latentguard
 
-  dvwa:
-    image: vulnerables/web-dvwa:latest
-    container_name: latentguard-dvwa
+  juiceshop:
+    image: bkimminich/juice-shop:latest
+    container_name: latentguard-juiceshop
     restart: unless-stopped
     expose:
-      - "80"
+      - "3000"
+    environment:
+      NODE_ENV: unsafe   # keeps all intentional vulns enabled for WAF demos
     networks:
       - latentguard
 
@@ -56,7 +58,7 @@ services:
       # PROXY_TLS_CERT / PROXY_TLS_KEY left unset -> proxy auto-generates a
       # self-signed cert at startup (24h validity, localhost SAN). For prod,
       # mount a real cert into /etc/certs and set the two env vars.
-      PROXY_UPSTREAM: "http://dvwa:80"
+      PROXY_UPSTREAM: "http://juiceshop:3000"
       ML_URL: "http://ml:8000"
       ML_TIMEOUT_MS: "1000"
       MONGO_URI: "mongodb://mongo:27017"
@@ -65,7 +67,7 @@ services:
     depends_on:
       - mongo
       - ml
-      - dvwa
+      - juiceshop
     networks:
       - latentguard
 

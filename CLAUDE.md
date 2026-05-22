@@ -163,6 +163,40 @@ The TPR drop is honest, not regression. The previous 39.5 % was inflated by the 
 
 Next round of TPR improvement is feature-engineering work (n-gram entropy, payload-class detection), not threshold tuning.
 
+### FYP-II Juice Shop swap verified state (2026-05-22, branch `fyp-II`)
+
+The DVWA upstream looked like a textbook lab on stage — purple PHP-era UI, prominent "Damn Vulnerable Web App" branding — which undermined the credibility of the FYP at the panel. `fyp-II` swaps the upstream to **OWASP Juice Shop** (modern Angular SPA e-commerce, OWASP Flagship project) so the supervisor sees a production-looking app being protected. The WAF code is unchanged; only `infra/docker-compose.yml` and the training-data pipeline differ from `main`.
+
+**Stack diff vs `main`:**
+- `infra/docker-compose.yml`: `dvwa` service → `juiceshop` (image `bkimminich/juice-shop:latest`, `expose: 3000`, `NODE_ENV=unsafe` keeps the intentional vulns live); proxy `PROXY_UPSTREAM=http://juiceshop:3000`.
+- New crawler: `datasets/crawl_juiceshop_benign.py` — REST/JSON instead of HTML-form, JWT auth, ~3000 weighted requests hitting `/`, `/api/Products`, `/rest/products/search`, `/rest/captcha/`, `/api/BasketItems/`, `/api/Feedbacks/`, plus 108 `/api/Users/` registrations (see gotcha #21).
+- DVWA crawler scripts (`crawl_dvwa_benign.py`, `prime_dvwa_full.py`) are retained but no longer relevant on this branch — DVWA isn't running.
+
+**Verified state (2026-05-22, commit pending):**
+- 5 containers up: `latentguard-{mongo,juiceshop,ml,proxy,dashboard}`. ML warmup successful (~12s after restart before heartbeat clears safe mode).
+- Coraza loads CRS v4.7.0 + baseline cleanly. 6/6 attack classes still 403 through Juice Shop:
+  - GET `/?q=' OR 1=1--`, `/?q=<script>...`, `/?file=../../../etc/passwd`, `/?cmd=;cat /etc/passwd`, scanner UA, **POST `/rest/user/login` with SQLi in JSON email field**.
+- 12/12 benign Juice Shop flows pass (200/201): `/`, `/api/Products`, `/rest/products/search?q=apple`, `/rest/captcha/`, `/rest/user/whoami`, `/assets/i18n/en.json`, `/api/Quantitys`, `/api/Challenges/`, `/favicon.ico`, `/api/Feedbacks/`, `POST /rest/user/login` (admin), `POST /api/Users/` (fresh register).
+- CSIC 2010 replay (200 each): **FPR 0.00 %**, **TPR 27 %** — TPR is rule-only-equivalent because the ML model is now fit to Juice Shop, not CSIC; this is the expected tradeoff for domain-tuned anomaly detection. Frame in report as *the system protects whatever it's deployed against, not whatever has the loudest published corpus*.
+- P95 latency: benign 163 ms, attack 177 ms (same ~30 ms Keras overhead, documented in section 6).
+
+**Bootstrap order (this is the critical sequence — getting it wrong wastes hours):**
+```bash
+git checkout fyp-II
+cd infra && docker compose up -d --build
+# wait ~15s
+docker stop latentguard-ml                  # force proxy into safe-mode so crawl POSTs aren't blocked by an untrained ML
+docker exec latentguard-mongo mongosh --quiet latentguard --eval 'db.requests.deleteMany({})'
+python ../datasets/crawl_juiceshop_benign.py --proxy http://127.0.0.1:8080 --target 3000 --sleep-ms 2
+docker start latentguard-ml && sleep 15
+docker exec latentguard-ml python -m training.train_autoencoder --epochs 50 --augment-mongo --max 3000 --threshold-pct 99.5
+docker exec latentguard-ml python -m training.train_hdbscan --augment-mongo --max 3000
+docker restart latentguard-ml && sleep 18
+# expect: attack curls return 403, benign POST login/register return 200/201
+```
+
+The `--max 3000` cap is essential — without it, CSIC's 36k benign rows drown the 3.7k crawler rows and the AE collapses onto CSIC's `/tienda1/...` distribution, blocking `/` on real browser hits. See gotcha #20.
+
 ### `fyp-1` submission-snapshot verified state (2026-04-30, branch `fyp-1`, commit `b219548`)
 
 Branch built specifically for the 30 % submission demo. Same code as `main` but with a kill-switch that bypasses the ML layer so a supervisor evaluating M1+M2+M3+M7 can never see a benign request blocked by an in-progress autoencoder.
@@ -210,6 +244,10 @@ docker logs latentguard-proxy 2>&1 | grep ML_DISABLED                           
     - **Safe mode** (`safe.Get() == true`): real ML outage, heartbeat tripped → `fallback_used=true`, reason `"ML in safe mode"`. This is a degraded-service signal the operator should investigate.
     - **`ML_DISABLED=true`** (env var, set on `fyp-1` branch): intentional scope gating for the 30 % submission → `fallback_used=false`, reason `"ML disabled (FYP-I scope: M1+M2+M3+M7)"`. The system is operating *exactly as configured*; nothing to investigate.
     The kill-switch is wired in `proxy/cmd/proxy/main.go` (reads env, also skips heartbeat goroutine) and `proxy/internal/pipeline/pipeline.go` (extra `case mlDisabled:` arm in the verdict switch, *before* the safe-mode case so the more specific signal wins). Don't collapse these into one path — `fallback_used` is what the dashboard's "ML reliability" panel keys off, and conflating intentional gating with outages would corrupt that metric.
+19. **Windows Python `http.client` to `localhost` is ~10 s/req slower than to `127.0.0.1`.** Windows resolves `localhost` to `::1` first, the proxy isn't bound to IPv6, the connect attempt waits the full timeout, then falls back to IPv4. 10 000 ms vs 17 ms per request, measured. All loopback crawlers and the CSIC replay must use `127.0.0.1` explicitly (`crawl_juiceshop_benign.py::_conn` rewrites `localhost` → `127.0.0.1` and keeps the original in the Host header; pass `--proxy http://127.0.0.1:8080` to `replay_csic.py`). Only matters on Windows hosts; Linux glibc is fine because of `nss-files`/`/etc/hosts` direct lookup.
+20. **CSIC drowns the crawler in mixed-corpus training — cap with `--max`.** With CSIC at 36k rows and the Juice Shop crawler at ~3.7k, the AE minimises loss against CSIC's `/tienda1/...` distribution and ignores Juice Shop's `/`, `/api/Products`, etc. The model then blocks benign `/` on a real browser hit (recon error 0.11 vs threshold 0.04, AE saturates at 1.0). Fix: `--max 3000` on both `train_autoencoder` and `train_hdbscan` so CSIC ≈ crawler size, then bump `--threshold-pct 99.5` for a little extra margin. This generalises to any future upstream swap: always cap CSIC to the size of the freshest in-distribution corpus.
+21. **Crawler must seed many register-POST samples, not just N-pool registrations.** The first Juice Shop crawler did 8 `/api/Users/` POSTs (one per pool user) and the AE never fit the JSON register-body shape — a fresh signup post-train returned 403. Fix: `crawl_juiceshop_benign.py` schedules `THROWAWAY_REGISTER_COUNT=100` extra registrations spaced through phase 4 with unique emails (`lgone000_<millis>@lg-bench.test`, …). Same principle applies to any low-frequency POST shape: if a real user might do it occasionally, the crawler must do it ≥50 times.
+22. **`fyp-II` bootstrap requires ML to be DOWN during the seed crawl.** Cold-start chicken-and-egg: the un-juice-shop-trained ML blocks the very POSTs we need to capture as benign. Stop `latentguard-ml` before crawling so the proxy heartbeat trips safe-mode, requests fall through to Coraza-only, the audit log captures features for *every* request (block decision is irrelevant — features are written pre-decision), then start ML and retrain on the captured rows. Don't try to crawl with ML up "to save time" — you'll get a corrupt training set full of mid-train scores. See the bootstrap sequence in section 4.
 
 ---
 
@@ -241,7 +279,8 @@ After the 2026-04-26 merge, FYP-I scope grew to include M1, M2, M4, M5, M6, M7. 
 
 ## 7. Branch & commit conventions
 
-- **`main`** — the live trunk. Carries the full Phase A ML pipeline (M4+M5+M6+HTTPS+dashboard rework). FYP-II work branches off `main` under `feature/<phase>-<topic>`. Never push to `origin/main` without explicit user approval.
+- **`main`** — the live trunk. Carries the full Phase A ML pipeline (M4+M5+M6+HTTPS+dashboard rework) with the DVWA upstream. Frozen for FYP-II — no new work lands here directly. Never push to `origin/main` without explicit user approval.
+- **`fyp-II`** (created 2026-05-22, off `main`) — **the FYP-II working branch**. Swaps DVWA → OWASP Juice Shop, adds `datasets/crawl_juiceshop_benign.py`, and retrains the AE/HDBSCAN on Juice Shop benign traffic. Same WAF code as `main`; the diff is upstream + training-data pipeline. All Phase A/B/C/D work for FYP-II lands here (or in `feature/fyp-ii-*` topic branches off this) and gets merged back into `fyp-II` once verified. Don't merge back to `main` until FYP-II is delivered.
 - **`fyp-1`** (created 2026-04-30, commit `b219548`, on `origin`) — **the 30 % submission snapshot**. Same code as `main` but with `ML_DISABLED=true` set in `infra/docker-compose.yml` so the Phase A ML layer is gated off. This is the branch the supervisor evaluates; it cleanly demonstrates M1+M2+M3+M7 without the in-progress autoencoder mis-classifying benign DVWA traffic. Don't merge `fyp-1` back into `main` — they are deliberately divergent on the ML_DISABLED line and the diff *is* the demarcation between the 30 % scope and FYP-II Phase A work. To switch demo modes: `git checkout fyp-1` (rule-only) vs `git checkout main` (full ML).
 - **`feature/fyp-i`** — historical; bundled the original FYP-I baseline + Phase A work; merged into `main` on 2026-04-26 then retired. Local-only stale branch — safe to delete when convenient.
 - **Commits authored as `Syed Shaheer Khalid <yatoofire@gmail.com>`. Never include Claude / Anthropic attribution lines** — academic submission requirement, user has been explicit.
