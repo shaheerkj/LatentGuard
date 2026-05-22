@@ -324,6 +324,7 @@ After the 2026-04-26 merge, FYP-I scope grew to include M1, M2, M4, M5, M6, M7. 
 - **Verify before declaring done.** "It compiles" ≠ "it works". Run the live stack, hit it with curl / replay, check the audit log. The user has corrected this twice.
 - **No Claude / Anthropic attribution in any commit, PR, or generated artefact.** Ever. No `Co-Authored-By: Claude`. No "Generated with Claude Code" footer. The default Claude Code commit template includes these — strip them.
 - **Terse responses.** Skip restating the prompt and trailing "Summary:" sections.
+- **NEVER `git push` without an explicit user instruction.** Even on feature branches like `fyp-II`, even after a clean local commit, even when the user has previously approved a push — that approval was for that one push, not future ones. Wait for the user to type the word "push" (or equivalent). The user re-stated this rule on 2026-05-22 after a previous-session over-step. Local commits are fine; remote sharing is the user's call every time.
 - **Ask before risky actions** (force push, branch deletion, dropping containers with named volumes, anything that touches `main`).
 - **FYP-II must stay off `main`** until the user says otherwise — protects the 30 % submission.
 - **Do not mock the ML/database in integration tests** — the value is end-to-end behaviour.

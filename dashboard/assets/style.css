@@ -350,6 +350,12 @@ tbody tr:last-child td { border-bottom: none; }
     justify-content: flex-end;
     animation: fade-in 140ms ease-out;
 }
+/* The HTML `hidden` attribute alone gets overridden by the class-level
+   `display: flex` above (author stylesheet beats UA's [hidden] rule at
+   equal specificity). This explicit selector makes the hidden state win.
+   Bug fixed 2026-05-22: backdrop was rendering over the whole page on
+   load, blocking all clicks. */
+.drawer-backdrop[hidden] { display: none; }
 @keyframes fade-in { from { opacity: 0; } to { opacity: 1; } }
 .drawer {
     width: min(640px, 96vw);
