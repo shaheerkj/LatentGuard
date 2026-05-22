@@ -64,6 +64,14 @@ services:
       MONGO_URI: "mongodb://mongo:27017"
       MONGO_DB: "latentguard"
       CORAZA_RULES_DIR: "/etc/coraza/rules"
+      # Module 3 / FE-2: threat-intel blocklist. Defaults pull Spamhaus
+      # DROP + EDROP (free, no API key, ~1.5k CIDRs total). Override
+      # THREATINTEL_URL to a comma-separated list of plain-text CIDR feeds
+      # (FireHOL, AbuseIPDB exports, internal blocklists, etc.).
+      THREATINTEL_ENABLED: "true"
+      THREATINTEL_URL: "https://www.spamhaus.org/drop/drop.txt,https://www.spamhaus.org/drop/edrop.txt"
+      THREATINTEL_REFRESH_HOURS: "12"
+      THREATINTEL_TIMEOUT_SEC: "20"
     depends_on:
       - mongo
       - ml
