@@ -62,13 +62,14 @@ const els = {
         status:   document.getElementById("hdb-status"),
     },
     ti: {
-        pill:     document.getElementById("ti-pill"),
-        enabled:  document.getElementById("ti-enabled"),
-        entries:  document.getElementById("ti-entries"),
-        lastSync: document.getElementById("ti-last-sync"),
-        bytes:    document.getElementById("ti-bytes"),
-        sources:  document.getElementById("ti-sources"),
-        error:    document.getElementById("ti-error"),
+        pill:        document.getElementById("ti-pill"),
+        topbarPill:  document.getElementById("ti-status-pill"),
+        enabled:     document.getElementById("ti-enabled"),
+        entries:     document.getElementById("ti-entries"),
+        lastSync:    document.getElementById("ti-last-sync"),
+        bytes:       document.getElementById("ti-bytes"),
+        sourcesChips: document.getElementById("ti-sources-chips"),
+        error:       document.getElementById("ti-error"),
     },
     consensus: {
         modes:    document.querySelectorAll('input[name="mode"]'),
@@ -183,7 +184,7 @@ async function refreshHealth() {
         els.safePill.textContent = "ML: degraded";
         els.safePill.className = "pill pill--warn";
     } else {
-        els.safePill.textContent = "ML: unreachable";
+        els.safePill.textContent = "ML: down";
         els.safePill.className = "pill pill--danger";
     }
 }
@@ -248,6 +249,29 @@ function formatDateTime(iso) {
     if (!iso) return "-";
     const d = new Date(iso);
     return d.toLocaleString();
+}
+function relativeTime(iso) {
+    if (!iso) return "-";
+    const then = new Date(iso).getTime();
+    if (Number.isNaN(then)) return "-";
+    const diffS = Math.round((Date.now() - then) / 1000);
+    if (diffS < 0)   return "just now";
+    if (diffS < 45)  return "just now";
+    if (diffS < 90)  return "a minute ago";
+    const m = Math.round(diffS / 60);
+    if (m < 45)  return `${m} min ago`;
+    const h = Math.round(m / 60);
+    if (h < 24)  return `${h} hr ago`;
+    const days = Math.round(h / 24);
+    if (days < 30) return `${days} d ago`;
+    return new Date(iso).toLocaleDateString();
+}
+function shortenURL(u) {
+    try {
+        const x = new URL(u);
+        const path = x.pathname.length > 24 ? x.pathname.slice(0, 23) + "..." : x.pathname;
+        return x.hostname + path;
+    } catch { return u; }
 }
 
 async function refreshLogs() {
@@ -535,22 +559,37 @@ async function refreshDecisions() {
 
 async function refreshThreatIntel() {
     const s = await fetchJSONFrom(PROXY_BASE, "/__threatintel");
+    const setPill = (el, klass, text) => { if (!el) return; el.className = "pill " + klass; el.textContent = text; };
+
     if (!s) {
-        els.ti.pill.textContent = "proxy unreachable";
-        els.ti.pill.className = "pill pill--danger";
+        setPill(els.ti.pill, "pill--danger", "proxy unreachable");
+        setPill(els.ti.topbarPill, "pill pill--danger", "Threat intel: down");
         return;
     }
     const ok = s.enabled && s.entry_count > 0 && !s.last_error;
-    els.ti.pill.textContent = !s.enabled ? "disabled"
+    const pillText = !s.enabled ? "disabled"
         : s.last_error ? "stale" : `${fmt(s.entry_count)} entries`;
-    els.ti.pill.className = "pill " + (!s.enabled ? "pill--warn"
-        : ok ? "pill--ok" : "pill--danger");
-    els.ti.enabled.textContent  = s.enabled ? "yes" : "no";
+    const pillKlass = !s.enabled ? "pill--warn" : ok ? "pill--ok" : "pill--danger";
+    setPill(els.ti.pill, pillKlass, pillText);
+
+    // Topbar mini-pill mirrors the card status.
+    const topbarText = !s.enabled ? "Threat intel: off"
+        : s.last_error ? "Threat intel: stale" : `Threat intel: ${fmt(s.entry_count)}`;
+    setPill(els.ti.topbarPill, pillKlass, topbarText);
+
+    els.ti.enabled.textContent  = s.enabled ? "active" : "disabled";
     els.ti.entries.textContent  = fmt(s.entry_count);
-    els.ti.lastSync.textContent = formatDateTime(s.last_sync);
+    els.ti.lastSync.textContent = relativeTime(s.last_sync);
+    if (s.last_sync) els.ti.lastSync.title = formatDateTime(s.last_sync); // hover for absolute
     els.ti.bytes.textContent    = s.bytes_written != null ? `${fmt(s.bytes_written)} B` : "-";
-    els.ti.sources.textContent  = (s.sources || []).join(", ") || "-";
     els.ti.error.textContent    = s.last_error || "(none)";
+    if (s.last_error) els.ti.error.classList.add("muted-danger"); else els.ti.error.classList.remove("muted-danger");
+
+    // Source chips.
+    const sources = s.sources || [];
+    els.ti.sourcesChips.innerHTML = sources.length === 0
+        ? `<span class="ti-source muted">none configured</span>`
+        : sources.map(u => `<span class="ti-source" title="${escapeHtml(u)}">${escapeHtml(shortenURL(u))}</span>`).join("");
 }
 
 async function tick() {

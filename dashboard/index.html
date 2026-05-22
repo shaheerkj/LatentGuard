@@ -26,7 +26,8 @@
             <a class="nav-link nav-link--soon" data-route="settings">Settings</a>
         </nav>
         <div class="status">
-            <span id="safe-mode-pill" class="pill pill--ok">ML: healthy</span>
+            <span id="safe-mode-pill" class="pill pill--ok">ML</span>
+            <span id="ti-status-pill" class="pill pill--neutral">Threat intel</span>
         </div>
     </header>
 
@@ -34,35 +35,92 @@
         <!-- ============================ DASHBOARD =========================== -->
         <section id="view-dashboard" class="view view--active">
             <div class="grid">
-                <div class="card kpi"><div class="kpi-label">Total requests</div><div class="kpi-value" id="kpi-total">-</div></div>
-                <div class="card kpi"><div class="kpi-label">Blocked</div><div class="kpi-value kpi-danger" id="kpi-blocked">-</div></div>
-                <div class="card kpi"><div class="kpi-label">Under review</div><div class="kpi-value kpi-warn" id="kpi-review">-</div></div>
-                <div class="card kpi"><div class="kpi-label">Block rate</div><div class="kpi-value" id="kpi-rate">-</div></div>
-                <div class="card kpi"><div class="kpi-label">P95 latency</div><div class="kpi-value" id="kpi-p95">- ms</div></div>
+                <div class="card kpi kpi--total">
+                    <div class="kpi-top">
+                        <span class="kpi-label">Total requests</span>
+                        <span class="kpi-icon" aria-hidden="true">
+                            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 12h4l3-9 4 18 3-9h4"/></svg>
+                        </span>
+                    </div>
+                    <div class="kpi-value" id="kpi-total">-</div>
+                    <div class="kpi-foot">all-time across the audit log</div>
+                </div>
+                <div class="card kpi kpi--blocked">
+                    <div class="kpi-top">
+                        <span class="kpi-label">Blocked</span>
+                        <span class="kpi-icon" aria-hidden="true">
+                            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/><line x1="9" y1="9" x2="15" y2="15"/><line x1="15" y1="9" x2="9" y2="15"/></svg>
+                        </span>
+                    </div>
+                    <div class="kpi-value" id="kpi-blocked">-</div>
+                    <div class="kpi-foot">denied by Coraza or consensus</div>
+                </div>
+                <div class="card kpi kpi--review">
+                    <div class="kpi-top">
+                        <span class="kpi-label">Under review</span>
+                        <span class="kpi-icon" aria-hidden="true">
+                            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8S1 12 1 12z"/><circle cx="12" cy="12" r="3"/></svg>
+                        </span>
+                    </div>
+                    <div class="kpi-value" id="kpi-review">-</div>
+                    <div class="kpi-foot">borderline -- passed but flagged</div>
+                </div>
+                <div class="card kpi kpi--rate">
+                    <div class="kpi-top">
+                        <span class="kpi-label">Block rate</span>
+                        <span class="kpi-icon" aria-hidden="true">
+                            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21.21 15.89A10 10 0 1 1 8 2.83"/><path d="M22 12A10 10 0 0 0 12 2v10z"/></svg>
+                        </span>
+                    </div>
+                    <div class="kpi-value" id="kpi-rate">-</div>
+                    <div class="kpi-foot">blocked / total</div>
+                </div>
+                <div class="card kpi kpi--latency">
+                    <div class="kpi-top">
+                        <span class="kpi-label">P95 latency</span>
+                        <span class="kpi-icon" aria-hidden="true">
+                            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polygon points="13 2 3 14 12 14 11 22 21 10 12 10 13 2"/></svg>
+                        </span>
+                    </div>
+                    <div class="kpi-value" id="kpi-p95">- ms</div>
+                    <div class="kpi-foot">last 1k requests, end-to-end</div>
+                </div>
             </div>
 
             <div class="card chart-card">
                 <div class="card-header">
-                    <h2>Traffic over time</h2>
+                    <h2>
+                        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="22 12 18 12 15 21 9 3 6 12 2 12"/></svg>
+                        Traffic over time
+                    </h2>
                     <span class="card-sub">Last 60 minutes, per-minute counts by action</span>
                 </div>
                 <canvas id="chart-traffic" height="120"></canvas>
             </div>
 
-            <div class="card" id="card-threatintel">
+            <div class="card ti-card" id="card-threatintel">
                 <div class="card-header">
-                    <h2>Threat intel (M3 / FE-2)</h2>
+                    <h2>
+                        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/><polyline points="9 12 11 14 15 10"/></svg>
+                        Threat intel
+                    </h2>
                     <span class="pill" id="ti-pill">checking...</span>
                 </div>
-                <dl class="model-meta">
-                    <dt>Enabled</dt><dd id="ti-enabled">-</dd>
-                    <dt>Entries</dt><dd id="ti-entries">-</dd>
-                    <dt>Last sync</dt><dd id="ti-last-sync">-</dd>
-                    <dt>Bytes written</dt><dd id="ti-bytes">-</dd>
-                    <dt>Sources</dt><dd id="ti-sources">-</dd>
-                    <dt>Last error</dt><dd id="ti-error">-</dd>
+                <div class="ti-headline">
+                    <span class="ti-count" id="ti-entries">-</span>
+                    <span class="ti-count-label">CIDRs in the deny list</span>
+                </div>
+                <dl class="ti-meta">
+                    <div class="ti-meta-item"><dt>Status</dt><dd id="ti-enabled">-</dd></div>
+                    <div class="ti-meta-item"><dt>Last sync</dt><dd id="ti-last-sync">-</dd></div>
+                    <div class="ti-meta-item"><dt>Payload</dt><dd id="ti-bytes">-</dd></div>
+                    <div class="ti-meta-item"><dt>Last error</dt><dd id="ti-error">(none)</dd></div>
                 </dl>
-                <p class="hint">CIDR blocklist pulled from public sources (default Spamhaus DROP+EDROP). Refreshed every <code>THREATINTEL_REFRESH_HOURS</code> hours, atomically swapped into Coraza via <code>Engine.Reload()</code> with no proxy restart. Rule ID 1500001, phase 1.</p>
+                <h4 class="consensus-label" style="margin: 4px 0 8px;">Sources</h4>
+                <div class="ti-sources" id="ti-sources-chips">
+                    <span class="ti-source muted">-</span>
+                </div>
+                <p class="hint" style="margin-top: 14px;">Module 3 / FE-2. Refreshed every <code>THREATINTEL_REFRESH_HOURS</code> hours, atomically swapped into Coraza via <code>Engine.Reload()</code> -- no proxy restart. Rule ID <code>1500001</code>, phase 1.</p>
             </div>
         </section>
 
