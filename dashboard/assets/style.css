@@ -1214,3 +1214,29 @@ tr:hover .method-tag {
     font-family: var(--font-mono);
     font-size: 12px;
 }
+
+/* ---------- decision overrides ---------- */
+.override-list { list-style: none; margin: 0; padding: 0; }
+.override-list li {
+    padding: 6px 0;
+    border-bottom: 1px dashed var(--border);
+    font-size: 12.5px;
+}
+.override-list li:last-child { border-bottom: none; }
+.override-verdict {
+    display: inline-block;
+    padding: 1px 8px;
+    border-radius: 3px;
+    font-family: var(--font-mono);
+    font-size: 11px;
+    font-weight: 600;
+    text-transform: uppercase;
+}
+.override-verdict-allow { background: rgba(16, 185, 129, 0.18); color: #34D399; }
+.override-verdict-block { background: rgba(239, 68, 68, 0.18); color: #F87171; }
+.override-reason {
+    display: inline-block;
+    color: var(--text);
+    margin-top: 2px;
+    word-break: break-word;
+}

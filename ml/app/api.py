@@ -44,6 +44,17 @@ def _serialize(doc: dict[str, Any]) -> dict[str, Any]:
         ts = out["timestamp"]
         if hasattr(ts, "isoformat"):
             out["timestamp"] = ts.isoformat()
+    # Overrides (FR4.5) carry a datetime each. Serialize so the dashboard
+    # can render relative times without parsing BSON.
+    if "overrides" in out and isinstance(out["overrides"], list):
+        cleaned = []
+        for o in out["overrides"]:
+            o = dict(o)
+            at = o.get("at")
+            if hasattr(at, "isoformat"):
+                o["at"] = at.isoformat()
+            cleaned.append(o)
+        out["overrides"] = cleaned
     return out
 
 
@@ -123,6 +134,54 @@ def get_logs(
     except PyMongoError as exc:
         logger.warning("logs: mongo error %s", exc)
         raise HTTPException(status_code=503, detail="storage unavailable") from exc
+
+
+class OverridePayload(BaseModel):
+    verdict: Literal["allow", "block"]
+    reason: str = Field(min_length=3, max_length=500)
+
+
+@router.post(
+    "/logs/{request_id}/override",
+    dependencies=[Depends(require_role(*Role.RULE_OPERATORS))],
+)
+def post_log_override(
+    request_id: str, payload: OverridePayload, request: Request
+) -> dict[str, Any]:
+    """Decision override (FR4.5): an admin or security-operator flags a past
+    audit row as wrong-verdict with a reason. Stored on the audit doc itself
+    so it round-trips through the existing /api/logs reader. The override
+    does NOT replay against the live engine -- it is a labelled annotation
+    that informs future training and provides a compliance trail. Future
+    work: feed overrides into auto-FP-correction (6.2.9).
+    """
+    actor = _request_actor(request)
+    try:
+        col = requests_collection()
+        from datetime import datetime, timezone
+        override_doc = {
+            "verdict": payload.verdict,
+            "reason": payload.reason,
+            "actor": actor,
+            "at": datetime.now(timezone.utc),
+        }
+        result = col.update_one(
+            {"request_id": request_id},
+            {"$push": {"overrides": override_doc}},
+        )
+        if result.matched_count == 0:
+            raise HTTPException(status_code=404, detail="request_id not found")
+    except PyMongoError as exc:
+        raise HTTPException(status_code=503, detail="storage unavailable") from exc
+    return {"ok": True, "override": _serialize_override(override_doc)}
+
+
+def _serialize_override(o: dict[str, Any]) -> dict[str, Any]:
+    out = dict(o)
+    at = out.get("at")
+    if hasattr(at, "isoformat"):
+        out["at"] = at.isoformat()
+    return out
 
 
 @router.get("/logs/{request_id}")

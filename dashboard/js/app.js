@@ -364,11 +364,26 @@ async function openRequestDrawer(requestId) {
     ).join("") || `<p class="muted">no headers captured</p>`;
 
     const curl = buildCurl(r);
+    const canOverride = LG_AUTH.canManageRules();
+    const overrideBtn = canOverride
+        ? `<button class="btn btn-sm" id="override-btn" type="button" title="Flag this verdict as wrong with a reason">Override verdict</button>`
+        : "";
+    const overrides = (r.overrides || []).slice().reverse();
+    const overridesHtml = overrides.length === 0
+        ? ""
+        : `<section class="drawer-section">
+              <h3>Overrides (${overrides.length})</h3>
+              <ul class="override-list">${overrides.map(o =>
+                  `<li><span class="override-verdict override-verdict-${escapeHtml(o.verdict)}">${escapeHtml(o.verdict)}</span> &middot; <span class="muted">${escapeHtml(o.actor || "?")} &middot; ${formatDateTime(o.at)}</span><br><span class="override-reason">${escapeHtml(o.reason || "")}</span></li>`
+              ).join("")}</ul>
+          </section>`;
     els.drawer.body.innerHTML = `
         <section class="drawer-section drawer-actions">
             <button class="btn btn-sm" id="copy-curl-btn" type="button" title="Copy a shell-pasteable curl that reproduces this request">Copy as curl</button>
+            ${overrideBtn}
             <span class="copy-feedback" id="copy-curl-feedback" hidden>copied</span>
         </section>
+        ${overridesHtml}
         <section class="drawer-section">
             <h3>Verdict</h3>
             <div class="drawer-grid">
@@ -424,6 +439,29 @@ async function openRequestDrawer(requestId) {
             } catch (err) {
                 console.warn("clipboard write failed", err);
                 alert("Copy failed. The curl text:\n\n" + curl);
+            }
+        });
+    }
+    const overrideBtnEl = document.getElementById("override-btn");
+    if (overrideBtnEl) {
+        overrideBtnEl.addEventListener("click", async () => {
+            const opposite = r.final_action === "block" ? "allow" : "block";
+            const verdict = prompt(
+                `Override verdict for ${r.method} ${r.path}\nCurrent: ${r.final_action}\nType "allow" or "block":`,
+                opposite,
+            );
+            if (!verdict || (verdict !== "allow" && verdict !== "block")) return;
+            const reason = prompt("Reason (3-500 chars) -- this is permanently logged:");
+            if (!reason || reason.length < 3) { alert("Reason required."); return; }
+            const res = await fetchJSON(`/api/logs/${encodeURIComponent(requestId)}/override`, {
+                method: "POST",
+                headers: {"Content-Type": "application/json"},
+                body: JSON.stringify({ verdict, reason }),
+            });
+            if (res) {
+                openRequestDrawer(requestId);
+            } else {
+                alert("Override failed -- see console.");
             }
         });
     }
