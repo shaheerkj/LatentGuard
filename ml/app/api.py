@@ -667,6 +667,15 @@ def _request_actor(request: Request) -> str:
 # ---------------------------------------------------------------------------
 
 
+@router.get("/siem/status")
+def siem_status() -> dict[str, Any]:
+    """SI-6: CEF/Syslog forwarder status -- enabled flags, last export,
+    error counters. No-auth-role-gating beyond require_auth (operational
+    state, any signed-in role can read)."""
+    from . import siem
+    return siem.status()
+
+
 @router.get("/models/accuracy")
 def models_accuracy(
     lookback_hours: int = Query(default=168, ge=1, le=24 * 60),

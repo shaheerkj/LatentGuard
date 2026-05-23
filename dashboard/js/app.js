@@ -971,6 +971,32 @@ async function refreshThreatIntel() {
         : sources.map(u => `<span class="ti-source" title="${escapeHtml(u)}">${escapeHtml(shortenURL(u))}</span>`).join("");
 }
 
+// SI-6: SIEM forwarder pill. Off when no destination configured;
+// otherwise shows the rolling event count + last error if any.
+async function refreshSiem() {
+    const pill = document.getElementById("siem-pill");
+    if (!pill) return;
+    const s = await fetchJSON("/api/siem/status");
+    if (!s) { pill.className = "pill pill--danger"; pill.textContent = "SIEM: down"; return; }
+    if (!s.enabled) {
+        pill.className = "pill pill--neutral";
+        pill.textContent = "SIEM: off";
+        pill.title = "Set SYSLOG_HOST or SIEM_LOG_PATH in compose to enable CEF export";
+        return;
+    }
+    const dests = [];
+    if (s.syslog_host) dests.push(`udp://${s.syslog_host}:${s.syslog_port}`);
+    if (s.file_path) dests.push(s.file_path);
+    if (s.errors_total > 0) {
+        pill.className = "pill pill--warn";
+        pill.textContent = `SIEM: ${s.events_total} ev / ${s.errors_total} err`;
+    } else {
+        pill.className = "pill pill--ok";
+        pill.textContent = `SIEM: ${s.events_total} ev`;
+    }
+    pill.title = `Destinations: ${dests.join(", ") || "(none)"}\nLast export: ${s.last_export_at || "never"}\nLast error: ${s.last_error || "(none)"}`;
+}
+
 // FR-MON-1: model accuracy panel + topbar pill. Numbers derived from
 // operator overrides via /api/models/accuracy.
 async function refreshAccuracy() {
@@ -1084,7 +1110,7 @@ async function tick() {
         refreshHealth(), refreshSafeMode(), refreshMetrics(), refreshTraffic(),
         refreshLogs(), refreshRules(),
         refreshModels(), refreshDecisions(), refreshThreatIntel(), refreshDrift(),
-        refreshBruteForce(), refreshAeLoss(), refreshAccuracy(),
+        refreshBruteForce(), refreshAeLoss(), refreshAccuracy(), refreshSiem(),
     ];
     if (LG_AUTH.canManageUsers()) calls.push(refreshUsers());
     await Promise.all(calls);

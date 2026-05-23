@@ -54,6 +54,17 @@ services:
       LG_GENERATED_RULES_DIR: "/etc/coraza/rules/lg-generated"
       PROXY_RELOAD_URL: "http://proxy:8080/__reload"
       # LLM_PROVIDER: stub|openai|anthropic. Defaults to stub (no key needed).
+      # SI-6 SIEM export. Optional. Either one or both:
+      #   SYSLOG_HOST/PORT  -> UDP RFC 3164 wrapped CEF
+      #   SIEM_LOG_PATH     -> appends CEF lines to a file (good for
+      #                        rsyslog file watchers, fluentbit, Loki)
+      # Both unset => the SIEM worker is disabled (default).
+      # SYSLOG_HOST: "siem.example.com"
+      # SYSLOG_PORT: "514"
+      SIEM_LOG_PATH: "/app/models/siem.log"
+      SIEM_INTERVAL_SECONDS: "5"
+      SIEM_BATCH: "200"
+
       # LLM_PROVIDER selects the rule-synthesis backend (see
       # ml/app/rulegen/orchestrator.py). Valid: stub | gemini | openai |
       # anthropic. Falls back to stub when the chosen provider's API key

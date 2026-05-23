@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import asyncio
 import logging
 import os
 from datetime import datetime, timezone
@@ -61,6 +62,13 @@ def _warmup() -> None:
         ensure_bootstrap_admin()
     except Exception as exc:
         logger.warning("users bootstrap deferred: %s", exc)
+
+    # SI-6 SIEM forwarder: no-op unless SYSLOG_HOST or SIEM_LOG_PATH is set.
+    try:
+        from . import siem
+        siem.start_in_background(asyncio.get_event_loop(), app.version)
+    except Exception as exc:
+        logger.warning("siem worker not started: %s", exc)
 
 
 @app.get("/healthz", response_model=HealthResponse)
