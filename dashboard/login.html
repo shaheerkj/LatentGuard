@@ -1,0 +1,50 @@
+<!doctype html>
+<html lang="en" data-theme="dark">
+<head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>LatentGuard - Sign in</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=Fira+Code:wght@400;500&display=swap" rel="stylesheet">
+    <link rel="stylesheet" href="assets/style.css">
+</head>
+<body class="login-body">
+    <main class="login-wrap">
+        <div class="login-card">
+            <div class="login-brand">
+                <span class="brand-mark">L</span>
+                <div>
+                    <div class="brand-name">LatentGuard</div>
+                    <div class="brand-tag">Operator Console</div>
+                </div>
+            </div>
+
+            <h1 class="login-title">Sign in</h1>
+            <p class="login-sub">Authenticate to access the admin panel.</p>
+
+            <form id="login-form" class="login-form" autocomplete="on">
+                <label class="login-field">
+                    <span>Username</span>
+                    <input type="text" id="login-username" name="username" autocomplete="username" required autofocus>
+                </label>
+                <label class="login-field">
+                    <span>Password</span>
+                    <input type="password" id="login-password" name="password" autocomplete="current-password" required>
+                </label>
+                <button type="submit" class="btn btn-primary login-submit" id="login-submit">Sign in</button>
+                <p class="login-error" id="login-error" hidden></p>
+            </form>
+
+            <div class="login-warnings" id="login-warnings" hidden></div>
+
+            <footer class="login-footer">
+                FYP demo build · single-admin auth · M10 RBAC deferred
+            </footer>
+        </div>
+    </main>
+
+    <script src="js/auth.js"></script>
+    <script src="js/login.js"></script>
+</body>
+</html>

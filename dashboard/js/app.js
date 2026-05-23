@@ -2,6 +2,10 @@
 // All data flows through the FastAPI ML service (CORS-enabled).
 
 const API_BASE = window.LATENTGUARD_API || "http://localhost:8000";
+// Proxy exposes its own operator endpoints (/__healthz, /__safe-mode,
+// /__threatintel) on a different port than the ML service. Override via
+// window.LATENTGUARD_PROXY if the dashboard is served from elsewhere.
+const PROXY_BASE = window.LATENTGUARD_PROXY || "http://localhost:8080";
 const REFRESH_MS = 5000;
 
 const els = {
@@ -11,12 +15,29 @@ const els = {
     kpi: {
         total:   document.getElementById("kpi-total"),
         blocked: document.getElementById("kpi-blocked"),
-        review:  document.getElementById("kpi-review"),
         rate:    document.getElementById("kpi-rate"),
         p95:     document.getElementById("kpi-p95"),
     },
     logBody:    document.getElementById("log-tbody"),
-    logFilter:  document.getElementById("log-filter"),
+    log: {
+        action:  document.getElementById("lf-action"),
+        method:  document.getElementById("lf-method"),
+        ip:      document.getElementById("lf-ip"),
+        path:    document.getElementById("lf-path"),
+        limit:   document.getElementById("lf-limit"),
+        reset:   document.getElementById("lf-reset"),
+        prev:    document.getElementById("lf-prev"),
+        next:    document.getElementById("lf-next"),
+        counter: document.getElementById("lf-counter"),
+    },
+    drawer: {
+        root:     document.getElementById("drawer"),
+        backdrop: document.getElementById("drawer-backdrop"),
+        title:    document.getElementById("drawer-title"),
+        subtitle: document.getElementById("drawer-subtitle"),
+        body:     document.getElementById("drawer-body"),
+        close:    document.getElementById("drawer-close"),
+    },
     rulesBody:  document.getElementById("rules-tbody"),
 
     ae: {
@@ -38,6 +59,16 @@ const els = {
         noise:    document.getElementById("hdb-noise"),
         mcs:      document.getElementById("hdb-mcs"),
         status:   document.getElementById("hdb-status"),
+    },
+    ti: {
+        pill:        document.getElementById("ti-pill"),
+        topbarPill:  document.getElementById("ti-status-pill"),
+        enabled:     document.getElementById("ti-enabled"),
+        entries:     document.getElementById("ti-entries"),
+        lastSync:    document.getElementById("ti-last-sync"),
+        bytes:       document.getElementById("ti-bytes"),
+        sourcesChips: document.getElementById("ti-sources-chips"),
+        error:       document.getElementById("ti-error"),
     },
     consensus: {
         modes:    document.querySelectorAll('input[name="mode"]'),
@@ -70,18 +101,83 @@ function setActiveRoute(route) {
 }
 
 els.routes.forEach(a => a.addEventListener("click", () => setActiveRoute(a.dataset.route)));
-els.logFilter.addEventListener("change", refreshLogs);
+
+// Log view state — the page index is kept here so it survives auto-refresh
+// ticks; filter changes reset it to 0.
+const logState = { offset: 0, limit: 50, total: 0 };
+function bindLogFilter(el, debounceMs = 0) {
+    let timer = null;
+    const handler = () => {
+        clearTimeout(timer);
+        timer = setTimeout(() => { logState.offset = 0; refreshLogs(); }, debounceMs);
+    };
+    el.addEventListener(debounceMs ? "input" : "change", handler);
+}
+bindLogFilter(els.log.action);
+bindLogFilter(els.log.method);
+bindLogFilter(els.log.ip, 250);
+bindLogFilter(els.log.path, 250);
+els.log.limit.addEventListener("change", () => {
+    logState.limit = Number(els.log.limit.value) || 50;
+    logState.offset = 0;
+    refreshLogs();
+});
+els.log.prev.addEventListener("click", () => {
+    logState.offset = Math.max(0, logState.offset - logState.limit);
+    refreshLogs();
+});
+els.log.next.addEventListener("click", () => {
+    if (logState.offset + logState.limit < logState.total) {
+        logState.offset += logState.limit;
+        refreshLogs();
+    }
+});
+els.log.reset.addEventListener("click", () => {
+    els.log.action.value = "";
+    els.log.method.value = "";
+    els.log.ip.value = "";
+    els.log.path.value = "";
+    els.log.limit.value = "50";
+    logState.limit = 50;
+    logState.offset = 0;
+    refreshLogs();
+});
+
+// Drawer wiring -- ESC + backdrop click + X button all close.
+function closeDrawer() {
+    els.drawer.backdrop.hidden = true;
+    els.drawer.root.classList.remove("drawer--open");
+}
+els.drawer.close.addEventListener("click", closeDrawer);
+els.drawer.backdrop.addEventListener("click", (e) => {
+    if (e.target === els.drawer.backdrop) closeDrawer();
+});
+document.addEventListener("keydown", (e) => {
+    if (e.key === "Escape" && !els.drawer.backdrop.hidden) closeDrawer();
+});
 
 async function fetchJSON(path, init) {
+    return fetchJSONFrom(API_BASE, path, init);
+}
+
+// Routed through LG_AUTH.authFetch so the bearer token is attached on every
+// API call. 401 responses kick the user back to the login page (the wrapper
+// throws; our catch swallows so dashboard ticks keep running until the
+// redirect actually navigates away).
+async function fetchJSONFrom(base, path, init) {
     try {
-        const res = await fetch(`${API_BASE}${path}`, init);
+        const res = await LG_AUTH.authFetch(`${base}${path}`, init);
         if (!res.ok) {
             const detail = await res.text();
             throw new Error(`HTTP ${res.status}: ${detail.slice(0, 120)}`);
         }
         return await res.json();
     } catch (err) {
-        console.warn("fetch failed", path, err);
+        // 'unauthenticated' is the marker authFetch throws after starting
+        // a redirect; don't log it as noise.
+        if (err && err.message !== "unauthenticated") {
+            console.warn("fetch failed", `${base}${path}`, err);
+        }
         return null;
     }
 }
@@ -95,7 +191,7 @@ async function refreshHealth() {
         els.safePill.textContent = "ML: degraded";
         els.safePill.className = "pill pill--warn";
     } else {
-        els.safePill.textContent = "ML: unreachable";
+        els.safePill.textContent = "ML: down";
         els.safePill.className = "pill pill--danger";
     }
 }
@@ -105,7 +201,6 @@ async function refreshMetrics() {
     if (!m) return;
     els.kpi.total.textContent   = fmt(m.total_requests);
     els.kpi.blocked.textContent = fmt(m.blocked);
-    els.kpi.review.textContent  = fmt(m.review);
     els.kpi.rate.textContent    = pct(m.block_rate);
     els.kpi.p95.textContent     = `${fmt(m.p95_latency_ms)} ms`;
 }
@@ -127,7 +222,7 @@ async function refreshTraffic() {
         type: "line",
         data: {
             labels: labels.map(formatTime),
-            datasets: [data("allow", "#10B981"), data("review", "#F59E0B"), data("block", "#EF4444")],
+            datasets: [data("allow", "#10B981"), data("block", "#EF4444")],
         },
         options: {
             responsive: true,
@@ -161,44 +256,353 @@ function formatDateTime(iso) {
     const d = new Date(iso);
     return d.toLocaleString();
 }
-
-async function refreshLogs() {
-    const action = els.logFilter.value;
-    const path = action ? `/api/logs?action=${action}&limit=100` : "/api/logs?limit=100";
-    const rows = await fetchJSON(path);
-    if (!rows) return;
-    if (rows.length === 0) {
-        els.logBody.innerHTML = `<tr><td colspan="8" class="empty">No matching requests yet.</td></tr>`;
-        return;
-    }
-    els.logBody.innerHTML = rows.map(r => `
-        <tr>
-            <td>${formatTime(r.timestamp)}</td>
-            <td>${r.source_ip ?? "-"}</td>
-            <td>${r.method}</td>
-            <td>${truncate(r.path, 60)}</td>
-            <td><span class="action-tag action-${r.final_action}">${r.final_action}</span></td>
-            <td>${fmt3(r.ml_score ?? 0)}</td>
-            <td>${(r.rule_hits || []).join(", ") || "-"}</td>
-            <td>${r.latency_ms} ms</td>
-        </tr>`).join("");
+function relativeTime(iso) {
+    if (!iso) return "-";
+    const then = new Date(iso).getTime();
+    if (Number.isNaN(then)) return "-";
+    const diffS = Math.round((Date.now() - then) / 1000);
+    if (diffS < 0)   return "just now";
+    if (diffS < 45)  return "just now";
+    if (diffS < 90)  return "a minute ago";
+    const m = Math.round(diffS / 60);
+    if (m < 45)  return `${m} min ago`;
+    const h = Math.round(m / 60);
+    if (h < 24)  return `${h} hr ago`;
+    const days = Math.round(h / 24);
+    if (days < 30) return `${days} d ago`;
+    return new Date(iso).toLocaleDateString();
+}
+function shortenURL(u) {
+    try {
+        const x = new URL(u);
+        const path = x.pathname.length > 24 ? x.pathname.slice(0, 23) + "..." : x.pathname;
+        return x.hostname + path;
+    } catch { return u; }
 }
 
-async function refreshRules() {
-    const rows = await fetchJSON("/api/rules");
-    if (!rows) return;
-    if (rows.length === 0) {
-        els.rulesBody.innerHTML = `<tr><td colspan="5" class="empty">No drafts yet - run pattern mining to populate this queue.</td></tr>`;
+async function refreshLogs() {
+    const q = new URLSearchParams();
+    q.set("limit", String(logState.limit));
+    q.set("offset", String(logState.offset));
+    if (els.log.action.value) q.set("action", els.log.action.value);
+    if (els.log.method.value) q.set("method", els.log.method.value);
+    if (els.log.ip.value.trim())   q.set("source_ip", els.log.ip.value.trim());
+    if (els.log.path.value.trim()) q.set("path_contains", els.log.path.value.trim());
+
+    const data = await fetchJSON(`/api/logs?${q.toString()}`);
+    if (!data) {
+        els.logBody.innerHTML = `<tr><td colspan="8" class="empty">Storage unreachable. Retrying...</td></tr>`;
         return;
     }
-    els.rulesBody.innerHTML = rows.map(r => `
-        <tr>
-            <td>${r.rule_id}</td>
-            <td>${truncate(r.pattern || "-", 50)}</td>
-            <td>${fmt3(r.confidence ?? 0)}</td>
-            <td><span class="action-tag action-${r.status === 'approved' ? 'allow' : r.status === 'rejected' ? 'block' : 'review'}">${r.status || "pending"}</span></td>
-            <td>${r.created_at ? formatTime(r.created_at) : "-"}</td>
-        </tr>`).join("");
+    const { rows = [], total = 0, offset = 0, limit = logState.limit } = data;
+    logState.total = total;
+    logState.offset = offset;
+
+    if (rows.length === 0) {
+        els.logBody.innerHTML = `<tr><td colspan="8" class="empty">No requests match the current filters.</td></tr>`;
+    } else {
+        els.logBody.innerHTML = rows.map(r => `
+            <tr data-req-id="${r.request_id || ''}">
+                <td>${formatTime(r.timestamp)}</td>
+                <td>${r.source_ip ?? "-"}</td>
+                <td><span class="method-tag">${r.method}</span></td>
+                <td title="${escapeHtml(r.path || '')}">${truncate(r.path, 70)}</td>
+                <td><span class="action-tag action-${r.final_action}">${r.final_action}</span></td>
+                <td>${fmt3(r.ml_score ?? 0)}</td>
+                <td class="rule-hits-cell">${formatRuleHits(r.rule_hits)}</td>
+                <td>${r.latency_ms} ms</td>
+            </tr>`).join("");
+        // Attach click handlers after render.
+        els.logBody.querySelectorAll("tr[data-req-id]").forEach(tr => {
+            tr.addEventListener("click", () => openRequestDrawer(tr.dataset.reqId));
+        });
+    }
+
+    // Pager.
+    const from = total ? offset + 1 : 0;
+    const to = Math.min(offset + rows.length, total);
+    els.log.counter.textContent = `${from}-${to} of ${fmt(total)}`;
+    els.log.prev.disabled = offset === 0;
+    els.log.next.disabled = offset + limit >= total;
+}
+
+function formatRuleHits(hits) {
+    if (!hits || hits.length === 0) return "-";
+    const shown = hits.slice(0, 3).join(", ");
+    return hits.length > 3
+        ? `${shown} <span class="muted">+${hits.length - 3}</span>`
+        : shown;
+}
+
+function escapeHtml(s) {
+    return String(s ?? "")
+        .replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;")
+        .replace(/"/g, "&quot;").replace(/'/g, "&#39;");
+}
+
+async function openRequestDrawer(requestId) {
+    if (!requestId) return;
+    els.drawer.backdrop.hidden = false;
+    els.drawer.root.classList.add("drawer--open");
+    els.drawer.title.textContent = "Request detail";
+    els.drawer.subtitle.textContent = requestId;
+    els.drawer.body.innerHTML = `<p class="empty">Loading...</p>`;
+    const r = await fetchJSON(`/api/logs/${encodeURIComponent(requestId)}`);
+    if (!r) {
+        els.drawer.body.innerHTML = `<p class="empty">Failed to load request ${escapeHtml(requestId)}.</p>`;
+        return;
+    }
+    els.drawer.title.textContent = `${r.method} ${truncate(r.path, 60)}`;
+    els.drawer.subtitle.textContent = `${requestId} · ${formatDateTime(r.timestamp)} · ${r.latency_ms} ms`;
+    const f = r.features || {};
+    const features = Object.entries(f).map(([k, v]) =>
+        `<div class="kv"><dt>${k}</dt><dd>${typeof v === "number" ? Number(v).toFixed(4) : String(v)}</dd></div>`
+    ).join("");
+    const reasons = (r.reasons || []).map(x => `<li>${escapeHtml(x)}</li>`).join("") || `<li class="muted">none</li>`;
+    const headers = Object.entries(r.headers || {}).map(([k, v]) =>
+        `<div class="kv"><dt>${escapeHtml(k)}</dt><dd>${escapeHtml(v)}</dd></div>`
+    ).join("") || `<p class="muted">no headers captured</p>`;
+
+    els.drawer.body.innerHTML = `
+        <section class="drawer-section">
+            <h3>Verdict</h3>
+            <div class="drawer-grid">
+                <div class="kv"><dt>Final action</dt><dd><span class="action-tag action-${r.final_action}">${r.final_action}</span></dd></div>
+                <div class="kv"><dt>ML action</dt><dd>${escapeHtml(r.ml_action || "-")}</dd></div>
+                <div class="kv"><dt>ML score</dt><dd>${fmt3(r.ml_score ?? 0)}</dd></div>
+                <div class="kv"><dt>AE anomaly</dt><dd>${fmt3(r.ml_anomaly_score ?? 0)}</dd></div>
+                <div class="kv"><dt>HDB outlier</dt><dd>${fmt3(r.ml_outlier_score ?? 0)}</dd></div>
+                <div class="kv"><dt>Rule score</dt><dd>${fmt3(r.rule_score ?? 0)}</dd></div>
+                <div class="kv"><dt>Rule action</dt><dd>${escapeHtml(r.rule_action || "-")}</dd></div>
+                <div class="kv"><dt>Fallback used</dt><dd>${r.fallback_used ? "yes" : "no"}</dd></div>
+            </div>
+        </section>
+        <section class="drawer-section">
+            <h3>Reasons</h3>
+            <ul class="reason-list">${reasons}</ul>
+        </section>
+        <section class="drawer-section">
+            <h3>Rule hits (${(r.rule_hits || []).length})</h3>
+            <p class="rule-hits-list">${(r.rule_hits || []).join(", ") || `<span class="muted">none</span>`}</p>
+        </section>
+        <section class="drawer-section">
+            <h3>Request</h3>
+            <div class="drawer-grid">
+                <div class="kv"><dt>Source IP</dt><dd>${escapeHtml(r.source_ip || "-")}</dd></div>
+                <div class="kv"><dt>Method</dt><dd>${escapeHtml(r.method || "-")}</dd></div>
+                <div class="kv"><dt>Path</dt><dd>${escapeHtml(r.path || "-")}</dd></div>
+                <div class="kv"><dt>Canonical path</dt><dd>${escapeHtml(r.canonical_path || "-")}</dd></div>
+                <div class="kv"><dt>Canonical query</dt><dd>${escapeHtml(r.canonical_query || "-")}</dd></div>
+            </div>
+            <h4>Canonical body</h4>
+            <pre class="code-block">${escapeHtml(r.canonical_body || "(empty)")}</pre>
+        </section>
+        <section class="drawer-section">
+            <h3>Features</h3>
+            <div class="drawer-grid">${features || `<p class="muted">no features captured</p>`}</div>
+        </section>
+        <section class="drawer-section">
+            <h3>Headers</h3>
+            <div class="drawer-grid drawer-grid--headers">${headers}</div>
+        </section>`;
+}
+
+// ---------------------------- M8/M9/M10 rules tab -------------------------
+const rulesState = { status: "", lastRows: [] };
+
+async function refreshRules() {
+    const qs = rulesState.status ? `?status=${encodeURIComponent(rulesState.status)}` : "";
+    const data = await fetchJSON(`/api/rules/candidates${qs}`);
+    if (!data) return;
+    const rows = data.rows || [];
+    rulesState.lastRows = rows;
+    const counter = document.getElementById("rules-counter");
+    if (counter) counter.textContent = `${rows.length} shown`;
+    if (rows.length === 0) {
+        els.rulesBody.innerHTML = `<tr><td colspan="7" class="empty">No rules match this filter.</td></tr>`;
+        return;
+    }
+    els.rulesBody.innerHTML = rows.map(r => {
+        const items = (r.pattern && r.pattern.items) || [];
+        const supportPct = r.pattern && r.pattern.support != null
+            ? (r.pattern.support * 100).toFixed(1) + "%"
+            : "-";
+        const tags = (r.tags || []).map(t => `<span class="tag-chip">${escapeHtml(t)}</span>`).join("");
+        return `<tr data-rule-id="${r.rule_id}">
+            <td><code>${r.rule_id}</code></td>
+            <td><span class="status-pill status-${r.status}">${r.status}</span></td>
+            <td class="items-cell">${items.map(i => `<span class="item-chip">${escapeHtml(i)}</span>`).join("")}</td>
+            <td>${supportPct}</td>
+            <td>${tags || "-"}</td>
+            <td title="${formatDateTime(r.updated_at)}">${relativeTime(r.updated_at)}</td>
+            <td class="actions-cell">${renderRuleActions(r)}</td>
+        </tr>`;
+    }).join("");
+}
+
+function renderRuleActions(r) {
+    const buttons = [];
+    buttons.push(`<button class="btn btn-sm" data-rule-act="view" data-rule-id="${r.rule_id}">View</button>`);
+    if (r.status === "pending") {
+        buttons.push(`<button class="btn btn-sm btn-primary" data-rule-act="approve" data-rule-id="${r.rule_id}">Approve</button>`);
+        buttons.push(`<button class="btn btn-sm btn-danger" data-rule-act="reject" data-rule-id="${r.rule_id}">Reject</button>`);
+    } else if (r.status === "approved" || r.status === "live") {
+        buttons.push(`<button class="btn btn-sm btn-danger" data-rule-act="expire" data-rule-id="${r.rule_id}">Expire</button>`);
+    } else if (r.status === "rejected" || r.status === "expired") {
+        buttons.push(`<button class="btn btn-sm" data-rule-act="delete" data-rule-id="${r.rule_id}">Delete</button>`);
+    }
+    return buttons.join(" ");
+}
+
+// Single delegated handler so freshly-rendered rows pick up clicks.
+els.rulesBody && els.rulesBody.addEventListener("click", async (e) => {
+    const btn = e.target.closest("[data-rule-act]");
+    if (!btn) return;
+    const ruleId = Number(btn.dataset.ruleId);
+    const act = btn.dataset.ruleAct;
+    btn.disabled = true;
+    try {
+        if (act === "view") return openRuleModal(ruleId);
+        const path = `/api/rules/candidates/${ruleId}/${act === "delete" ? "" : act}`;
+        const init = act === "delete"
+            ? { method: "DELETE" }
+            : { method: "POST", headers: {"Content-Type": "application/json"}, body: JSON.stringify({}) };
+        const res = await fetchJSON(act === "delete" ? `/api/rules/candidates/${ruleId}` : path, init);
+        if (res === null) {
+            alert(`Action ${act} failed - see console`);
+        }
+    } finally {
+        btn.disabled = false;
+        refreshRules();
+    }
+});
+
+// Status filter chips.
+const rulesFilters = document.getElementById("rules-filters");
+if (rulesFilters) {
+    rulesFilters.addEventListener("click", (e) => {
+        const chip = e.target.closest("[data-rule-status]");
+        if (!chip) return;
+        rulesState.status = chip.dataset.ruleStatus;
+        rulesFilters.querySelectorAll(".chip").forEach(c =>
+            c.classList.toggle("chip--active", c === chip));
+        refreshRules();
+    });
+}
+
+// Mining controls.
+const mineRunBtn = document.getElementById("mine-run");
+const mineStatusEl = document.getElementById("mine-status");
+if (mineRunBtn) {
+    mineRunBtn.addEventListener("click", async () => {
+        const payload = {
+            min_support: Number(document.getElementById("mine-support").value) || 0.05,
+            min_itemset_len: Number(document.getElementById("mine-min-len").value) || 2,
+            max_itemset_len: Number(document.getElementById("mine-max-len").value) || 4,
+            lookback_hours: Number(document.getElementById("mine-lookback").value) || 168,
+            only_blocked: document.getElementById("mine-only-blocked").checked,
+            emit_candidates: document.getElementById("mine-emit").checked,
+        };
+        mineRunBtn.disabled = true;
+        if (mineStatusEl) mineStatusEl.textContent = "running...";
+        const result = await fetchJSON("/api/mining/run", {
+            method: "POST",
+            headers: {"Content-Type": "application/json"},
+            body: JSON.stringify(payload),
+        });
+        mineRunBtn.disabled = false;
+        if (!result) {
+            if (mineStatusEl) mineStatusEl.textContent = "failed - see console";
+            return;
+        }
+        const synth = result.synthesis || {};
+        const inserted = (synth.inserted || []).length;
+        const refreshed = (synth.refreshed || []).length;
+        if (mineStatusEl) {
+            mineStatusEl.textContent =
+                `${result.transactions} txns, ${(result.patterns || []).length} patterns, ` +
+                `${inserted} new + ${refreshed} refreshed candidates ` +
+                `(${result.elapsed_ms} ms)`;
+        }
+        refreshRules();
+    });
+}
+
+// Rule modal (view + edit).
+const ruleModal = {
+    backdrop: document.getElementById("rule-modal-backdrop"),
+    body:     document.getElementById("rule-modal-body"),
+    title:    document.getElementById("rule-modal-title"),
+    save:     document.getElementById("rule-modal-save"),
+    cancel:   document.getElementById("rule-modal-cancel"),
+    close:    document.getElementById("rule-modal-close"),
+    currentId: null,
+};
+function closeRuleModal() {
+    if (ruleModal.backdrop) ruleModal.backdrop.hidden = true;
+    ruleModal.currentId = null;
+}
+if (ruleModal.close)  ruleModal.close.addEventListener("click", closeRuleModal);
+if (ruleModal.cancel) ruleModal.cancel.addEventListener("click", closeRuleModal);
+if (ruleModal.backdrop) ruleModal.backdrop.addEventListener("click", (e) => {
+    if (e.target === ruleModal.backdrop) closeRuleModal();
+});
+if (ruleModal.save) ruleModal.save.addEventListener("click", async () => {
+    const rid = ruleModal.currentId;
+    if (rid == null) return;
+    const text = document.getElementById("rule-edit-text");
+    const msg = document.getElementById("rule-edit-message");
+    const notes = document.getElementById("rule-edit-notes");
+    ruleModal.save.disabled = true;
+    const res = await fetchJSON(`/api/rules/candidates/${rid}`, {
+        method: "PUT",
+        headers: {"Content-Type": "application/json"},
+        body: JSON.stringify({
+            rule_text: text ? text.value : null,
+            message:   msg ? msg.value : null,
+            notes:     notes ? notes.value : null,
+        }),
+    });
+    ruleModal.save.disabled = false;
+    if (res) {
+        closeRuleModal();
+        refreshRules();
+    } else {
+        alert("Edit failed - see console");
+    }
+});
+
+async function openRuleModal(rid) {
+    const r = await fetchJSON(`/api/rules/candidates/${rid}`);
+    if (!r || !ruleModal.backdrop) return;
+    ruleModal.currentId = rid;
+    ruleModal.title.textContent = `Rule ${rid} (${r.status})`;
+    const history = (r.edit_history || []).slice(-5).reverse().map(h =>
+        `<li><span class="muted">${formatDateTime(h.at)}</span> &mdash; ${escapeHtml(h.actor || "?")}: ${escapeHtml(h.from)} &rarr; ${escapeHtml(h.to)}${h.note ? " (" + escapeHtml(h.note) + ")" : ""}</li>`
+    ).join("") || "<li class='muted'>no history</li>";
+    ruleModal.body.innerHTML = `
+        <div class="modal-section">
+            <label>Message</label>
+            <input type="text" id="rule-edit-message" value="${escapeHtml(r.message || "")}">
+        </div>
+        <div class="modal-section">
+            <label>Rule text (ModSecurity)</label>
+            <textarea id="rule-edit-text" rows="12" spellcheck="false">${escapeHtml(r.rule_text || "")}</textarea>
+        </div>
+        <div class="modal-section">
+            <label>Notes (operator-only, never deployed)</label>
+            <input type="text" id="rule-edit-notes" value="${escapeHtml(r.notes || "")}">
+        </div>
+        <div class="modal-section">
+            <label>Pattern</label>
+            <div>${((r.pattern && r.pattern.items) || []).map(i => `<span class="item-chip">${escapeHtml(i)}</span>`).join(" ")}</div>
+            <div class="muted">support ${(r.pattern && r.pattern.support != null) ? (r.pattern.support * 100).toFixed(2) + "%" : "-"} &middot; ${(r.pattern && r.pattern.support_count) || 0} of ${(r.pattern && r.pattern.support_count != null) ? "..." : "?"} transactions</div>
+        </div>
+        <div class="modal-section">
+            <label>State history</label>
+            <ul class="history-list">${history}</ul>
+        </div>`;
+    ruleModal.backdrop.hidden = false;
 }
 
 function truncate(s, n) {
@@ -319,8 +723,9 @@ els.consensus.save.addEventListener("click", async () => {
 });
 
 async function refreshDecisions() {
-    const rows = await fetchJSON("/api/logs?limit=20");
-    if (!rows) return;
+    const data = await fetchJSON("/api/logs?limit=20");
+    if (!data) return;
+    const rows = data.rows || [];
     if (rows.length === 0) {
         els.consensus.decisionsBody.innerHTML = `<tr><td colspan="7" class="empty">No requests yet.</td></tr>`;
         return;
@@ -339,12 +744,78 @@ async function refreshDecisions() {
 
 /* ------------------------------- main loop ------------------------------- */
 
+async function refreshThreatIntel() {
+    const s = await fetchJSONFrom(PROXY_BASE, "/__threatintel");
+    const setPill = (el, klass, text) => { if (!el) return; el.className = "pill " + klass; el.textContent = text; };
+
+    if (!s) {
+        setPill(els.ti.pill, "pill--danger", "proxy unreachable");
+        setPill(els.ti.topbarPill, "pill pill--danger", "Threat intel: down");
+        return;
+    }
+    const ok = s.enabled && s.entry_count > 0 && !s.last_error;
+    const pillText = !s.enabled ? "disabled"
+        : s.last_error ? "stale" : `${fmt(s.entry_count)} entries`;
+    const pillKlass = !s.enabled ? "pill--warn" : ok ? "pill--ok" : "pill--danger";
+    setPill(els.ti.pill, pillKlass, pillText);
+
+    // Topbar mini-pill mirrors the card status.
+    const topbarText = !s.enabled ? "Threat intel: off"
+        : s.last_error ? "Threat intel: stale" : `Threat intel: ${fmt(s.entry_count)}`;
+    setPill(els.ti.topbarPill, pillKlass, topbarText);
+
+    els.ti.enabled.textContent  = s.enabled ? "active" : "disabled";
+    els.ti.entries.textContent  = fmt(s.entry_count);
+    els.ti.lastSync.textContent = relativeTime(s.last_sync);
+    if (s.last_sync) els.ti.lastSync.title = formatDateTime(s.last_sync); // hover for absolute
+    els.ti.bytes.textContent    = s.bytes_written != null ? `${fmt(s.bytes_written)} B` : "-";
+    els.ti.error.textContent    = s.last_error || "(none)";
+    if (s.last_error) els.ti.error.classList.add("muted-danger"); else els.ti.error.classList.remove("muted-danger");
+
+    // Source chips.
+    const sources = s.sources || [];
+    els.ti.sourcesChips.innerHTML = sources.length === 0
+        ? `<span class="ti-source muted">none configured</span>`
+        : sources.map(u => `<span class="ti-source" title="${escapeHtml(u)}">${escapeHtml(shortenURL(u))}</span>`).join("");
+}
+
+async function refreshDrift() {
+    const pill = document.getElementById("drift-pill");
+    if (!pill) return;
+    const d = await fetchJSON("/api/models/drift?window_min=60&baseline_min=1440");
+    if (!d) {
+        pill.className = "pill pill--danger";
+        pill.textContent = "Drift: down";
+        return;
+    }
+    if (d.z_score == null) {
+        pill.className = "pill pill--neutral";
+        pill.textContent = `Drift: warm-up (${d.window.n}/${d.baseline.n})`;
+        return;
+    }
+    const z = d.z_score;
+    const klass = d.drift_detected
+        ? (z > 0 ? "pill pill--danger" : "pill pill--warn")
+        : "pill pill--ok";
+    pill.className = klass;
+    pill.textContent = `Drift z=${z.toFixed(2)}${d.drift_detected ? " !" : ""}`;
+    pill.title = `Window n=${d.window.n} mean=${d.window.mean.toFixed(3)} | ` +
+                 `Baseline n=${d.baseline.n} mean=${d.baseline.mean.toFixed(3)} std=${d.baseline.std.toFixed(3)}`;
+}
+
 async function tick() {
     await Promise.all([
         refreshHealth(), refreshMetrics(), refreshTraffic(), refreshLogs(), refreshRules(),
-        refreshModels(), refreshDecisions(),
+        refreshModels(), refreshDecisions(), refreshThreatIntel(), refreshDrift(),
     ]);
 }
+
+// Topbar username + sign-out wiring (auth.js was already loaded by index.html
+// before this script ran).
+const _topbarUser = document.getElementById("topbar-user");
+if (_topbarUser) _topbarUser.textContent = LG_AUTH.user() || "admin";
+const _logout = document.getElementById("logout-btn");
+if (_logout) _logout.addEventListener("click", () => LG_AUTH.logout());
 
 refreshConsensusConfig();
 tick();

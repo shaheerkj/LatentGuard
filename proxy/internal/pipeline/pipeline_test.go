@@ -5,6 +5,7 @@ import (
 	"io"
 	"net/http"
 	"net/http/httptest"
+	"os"
 	"path/filepath"
 	"runtime"
 	"strings"
@@ -15,11 +16,20 @@ import (
 	"github.com/shaheerkj/latentguard/proxy/internal/coraza"
 )
 
-// rulesDir locates the proxy/rules directory relative to this test file.
+// rulesDir locates the proxy/rules directory relative to this test file
+// and makes sure the runtime-only threatintel.data placeholder exists so
+// the M3 SecRule's @ipMatchFromFile reference resolves at coraza.New time.
 func rulesDir(t *testing.T) string {
 	t.Helper()
 	_, here, _, _ := runtime.Caller(0)
-	return filepath.Join(filepath.Dir(here), "..", "..", "rules")
+	dir := filepath.Join(filepath.Dir(here), "..", "..", "rules")
+	dataFile := filepath.Join(dir, "threatintel.data")
+	if _, err := os.Stat(dataFile); os.IsNotExist(err) {
+		if err := os.WriteFile(dataFile, []byte("# test placeholder\n"), 0o644); err != nil {
+			t.Fatalf("placeholder: %v", err)
+		}
+	}
+	return dir
 }
 
 // upstreamServer returns 200 with a marker body — lets tests assert the

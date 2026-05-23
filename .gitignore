@@ -13,6 +13,9 @@ proxy/proxy.exe
 *.test
 vendor/
 
+# Threat-intel blocklist data (populated at runtime by proxy/internal/threatintel)
+proxy/rules/threatintel.data
+
 # ML artifacts
 ml/models/*.h5
 ml/models/*.keras

@@ -11,14 +11,22 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"sync"
 
 	corazaengine "github.com/corazawaf/coraza/v3"
 	"github.com/corazawaf/coraza/v3/types"
 )
 
-// Engine wraps a Coraza WAF instance.
+// Engine wraps a Coraza WAF instance. The underlying WAF lives behind an
+// RWMutex so the threat-intel goroutine can atomically swap in a fresh
+// ruleset (Reload) without racing readers in the request hot path
+// (Inspect). Reload is rare (every refresh interval, default 12h);
+// Inspect is hot (per request) — RWMutex over atomic.Pointer keeps the
+// reader path simple and the interface-typed WAF value lets us copy it.
 type Engine struct {
-	waf corazaengine.WAF
+	mu       sync.RWMutex
+	waf      corazaengine.WAF
+	rulesDir string // remembered so Reload can rebuild from the same source
 }
 
 // InspectionResult is the analyser output from one request.
@@ -79,6 +87,34 @@ func isCRSScaffoldRuleID(id int) bool {
 // New builds an Engine, loading every *.conf file under rulesDir. A missing or
 // empty directory is allowed and logs a warning.
 func New(rulesDir string) (*Engine, error) {
+	waf, err := buildWAF(rulesDir, true)
+	if err != nil {
+		return nil, err
+	}
+	return &Engine{waf: waf, rulesDir: rulesDir}, nil
+}
+
+// Reload rebuilds the underlying WAF from the original rules directory and
+// atomically swaps it in. Used by the threat-intel goroutine after writing
+// a fresh blocklist .data file -- @ipMatchFromFile caches the file on
+// first load, so we must rebuild the WAF for new entries to take effect.
+//
+// The cost is roughly the boot-time rule load (~200ms for full CRS); during
+// that time inflight Inspect calls hold the read lock and finish on the
+// old WAF, then new requests grab the read lock and see the new one.
+func (e *Engine) Reload() error {
+	waf, err := buildWAF(e.rulesDir, false)
+	if err != nil {
+		return fmt.Errorf("coraza reload: %w", err)
+	}
+	e.mu.Lock()
+	e.waf = waf
+	e.mu.Unlock()
+	log.Printf("coraza: reloaded rules from %s", e.rulesDir)
+	return nil
+}
+
+func buildWAF(rulesDir string, verbose bool) (corazaengine.WAF, error) {
 	cfg := corazaengine.NewWAFConfig().
 		WithDirectives("SecRuleEngine On").
 		WithDirectives("SecRequestBodyAccess On").
@@ -93,14 +129,16 @@ func New(rulesDir string) (*Engine, error) {
 		// includes and @pmFromFile/@ipMatchFromFile operators against the
 		// rule file's own directory (CRS rules reference *.data files this way).
 		cfg = cfg.WithDirectivesFromFile(f)
-		log.Printf("coraza: loaded rule file %s", f)
+		if verbose {
+			log.Printf("coraza: loaded rule file %s", f)
+		}
 	}
 
 	waf, err := corazaengine.NewWAF(cfg)
 	if err != nil {
 		return nil, fmt.Errorf("coraza waf init: %w", err)
 	}
-	return &Engine{waf: waf}, nil
+	return waf, nil
 }
 
 func loadRuleFiles(dir string) ([]string, error) {
@@ -138,7 +176,10 @@ func loadRuleFiles(dir string) ([]string, error) {
 // Inspect runs the request through Coraza's request-headers and request-body
 // phases. Body is supplied pre-buffered so it can be reused by callers.
 func (e *Engine) Inspect(r *http.Request, body []byte) InspectionResult {
-	tx := e.waf.NewTransaction()
+	e.mu.RLock()
+	waf := e.waf
+	e.mu.RUnlock()
+	tx := waf.NewTransaction()
 	defer func() {
 		tx.ProcessLogging()
 		if err := tx.Close(); err != nil {

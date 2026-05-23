@@ -3,22 +3,31 @@ package coraza
 import (
 	"net/http"
 	"net/http/httptest"
+	"os"
 	"path/filepath"
 	"runtime"
 	"strings"
 	"testing"
 )
 
-// rulesDir locates the ../../rules directory relative to this file. The tests
-// load the same rule files the production proxy will load, so they exercise
-// the baseline SecLang directly.
+// rulesDir locates the ../../rules directory relative to this file and
+// ensures the threat-intel placeholder data file exists. Tests load the
+// same rule files as production, so the @ipMatchFromFile reference in
+// 20-threat-intel.conf must resolve at coraza.New() time.
 func rulesDir(t *testing.T) string {
 	t.Helper()
 	_, here, _, ok := runtime.Caller(0)
 	if !ok {
 		t.Fatal("cannot resolve test file location")
 	}
-	return filepath.Join(filepath.Dir(here), "..", "..", "rules")
+	dir := filepath.Join(filepath.Dir(here), "..", "..", "rules")
+	dataFile := filepath.Join(dir, "threatintel.data")
+	if _, err := os.Stat(dataFile); os.IsNotExist(err) {
+		if err := os.WriteFile(dataFile, []byte("# test placeholder\n"), 0o644); err != nil {
+			t.Fatalf("placeholder: %v", err)
+		}
+	}
+	return dir
 }
 
 func newTestEngine(t *testing.T) *Engine {

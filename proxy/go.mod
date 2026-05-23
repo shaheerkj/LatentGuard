@@ -9,6 +9,7 @@ require (
 
 require (
 	github.com/corazawaf/libinjection-go v0.2.1 // indirect
+	github.com/golang-jwt/jwt/v5 v5.3.1 // indirect
 	github.com/golang/snappy v0.0.4 // indirect
 	github.com/klauspost/compress v1.16.7 // indirect
 	github.com/magefile/mage v1.15.0 // indirect

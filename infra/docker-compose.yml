@@ -12,12 +12,14 @@ services:
     networks:
       - latentguard
 
-  dvwa:
-    image: vulnerables/web-dvwa:latest
-    container_name: latentguard-dvwa
+  juiceshop:
+    image: bkimminich/juice-shop:latest
+    container_name: latentguard-juiceshop
     restart: unless-stopped
     expose:
-      - "80"
+      - "3000"
+    environment:
+      NODE_ENV: unsafe   # keeps all intentional vulns enabled for WAF demos
     networks:
       - latentguard
 
@@ -33,9 +35,24 @@ services:
       MONGO_URI: mongodb://mongo:27017
       MONGO_DB: latentguard
       CSIC_DIR: /app/csic_raw
+      # Operator auth (shared with the Go proxy via JWT_SECRET). Override
+      # ADMIN_PASSWORD_HASH with a real bcrypt hash before exposing this
+      # stack -- the default below is bcrypt('admin'), demo-grade only.
+      ADMIN_USER: "shaheerkj"
+      ADMIN_PASSWORD_HASH: "$$2b$$12$$nb3EVaoj8KMD2s2OtwCrN.6gL91P7lfE3EzUu45FXgtcrTm75cnRe"
+      JWT_SECRET: "dev-only-secret-change-me-for-anything-non-local"
+      JWT_TTL_HOURS: "12"
+      # M9/M10: shared dir with the proxy where promoted rules land.
+      # Same named volume on both sides so the ML side can write files
+      # the proxy's Coraza engine picks up on /__reload.
+      LG_GENERATED_RULES_DIR: "/etc/coraza/rules/lg-generated"
+      PROXY_RELOAD_URL: "http://proxy:8080/__reload"
+      # LLM_PROVIDER: stub|openai|anthropic. Defaults to stub (no key needed).
+      LLM_PROVIDER: "stub"
     volumes:
       - ../ml/models:/app/models      # trained artifacts persist & are host-editable
       - ../datasets/raw:/app/csic_raw # cached CSIC downloads
+      - lg-generated-rules:/etc/coraza/rules/lg-generated
     depends_on:
       - mongo
     networks:
@@ -56,16 +73,34 @@ services:
       # PROXY_TLS_CERT / PROXY_TLS_KEY left unset -> proxy auto-generates a
       # self-signed cert at startup (24h validity, localhost SAN). For prod,
       # mount a real cert into /etc/certs and set the two env vars.
-      PROXY_UPSTREAM: "http://dvwa:80"
+      PROXY_UPSTREAM: "http://juiceshop:3000"
       ML_URL: "http://ml:8000"
       ML_TIMEOUT_MS: "1000"
       MONGO_URI: "mongodb://mongo:27017"
       MONGO_DB: "latentguard"
       CORAZA_RULES_DIR: "/etc/coraza/rules"
+      # Module 3 / FE-2: threat-intel blocklist. Defaults pull Spamhaus
+      # DROP + EDROP (free, no API key, ~1.5k CIDRs total). Override
+      # THREATINTEL_URL to a comma-separated list of plain-text CIDR feeds
+      # (FireHOL, AbuseIPDB exports, internal blocklists, etc.).
+      THREATINTEL_ENABLED: "true"
+      THREATINTEL_URL: "https://www.spamhaus.org/drop/drop.txt,https://www.spamhaus.org/drop/edrop.txt"
+      THREATINTEL_REFRESH_HOURS: "12"
+      THREATINTEL_TIMEOUT_SEC: "20"
+      # Same JWT secret as the ML service -- proxy verifies the same tokens
+      # the dashboard receives from /api/auth/login. /__healthz stays public
+      # so docker healthchecks still work; /__threatintel and /__safe-mode
+      # require a valid bearer token.
+      JWT_SECRET: "dev-only-secret-change-me-for-anything-non-local"
     depends_on:
       - mongo
       - ml
-      - dvwa
+      - juiceshop
+    volumes:
+      # M9/M10: shared dir holding promoted rules from the ML service.
+      # Coraza's loadRuleFiles walks rulesDir recursively for *.conf so
+      # files under lg-generated/ are picked up on the next Reload().
+      - lg-generated-rules:/etc/coraza/rules/lg-generated
     networks:
       - latentguard
 
@@ -82,6 +117,7 @@ services:
 
 volumes:
   mongo-data:
+  lg-generated-rules:
 
 networks:
   latentguard:

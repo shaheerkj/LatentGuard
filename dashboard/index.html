@@ -26,7 +26,11 @@
             <a class="nav-link nav-link--soon" data-route="settings">Settings</a>
         </nav>
         <div class="status">
-            <span id="safe-mode-pill" class="pill pill--ok">ML: healthy</span>
+            <span id="safe-mode-pill" class="pill pill--ok">ML</span>
+            <span id="ti-status-pill" class="pill pill--neutral">Threat intel</span>
+            <span id="drift-pill" class="pill pill--neutral" title="Autoencoder anomaly-score drift vs baseline window">Drift: -</span>
+            <span class="topbar-user" id="topbar-user" title="Signed in"></span>
+            <button class="btn btn-icon-text" id="logout-btn" type="button" title="Sign out">Sign out</button>
         </div>
     </header>
 
@@ -34,19 +38,99 @@
         <!-- ============================ DASHBOARD =========================== -->
         <section id="view-dashboard" class="view view--active">
             <div class="grid">
-                <div class="card kpi"><div class="kpi-label">Total requests</div><div class="kpi-value" id="kpi-total">-</div></div>
-                <div class="card kpi"><div class="kpi-label">Blocked</div><div class="kpi-value kpi-danger" id="kpi-blocked">-</div></div>
-                <div class="card kpi"><div class="kpi-label">Under review</div><div class="kpi-value kpi-warn" id="kpi-review">-</div></div>
-                <div class="card kpi"><div class="kpi-label">Block rate</div><div class="kpi-value" id="kpi-rate">-</div></div>
-                <div class="card kpi"><div class="kpi-label">P95 latency</div><div class="kpi-value" id="kpi-p95">- ms</div></div>
+                <div class="card kpi kpi--total">
+                    <div class="kpi-top">
+                        <span class="kpi-label">Total requests</span>
+                        <span class="kpi-icon" aria-hidden="true">
+                            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 12h4l3-9 4 18 3-9h4"/></svg>
+                        </span>
+                    </div>
+                    <div class="kpi-value" id="kpi-total">-</div>
+                    <div class="kpi-foot">all-time across the audit log</div>
+                </div>
+                <div class="card kpi kpi--blocked">
+                    <div class="kpi-top">
+                        <span class="kpi-label">Blocked</span>
+                        <span class="kpi-icon" aria-hidden="true">
+                            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/><line x1="9" y1="9" x2="15" y2="15"/><line x1="15" y1="9" x2="9" y2="15"/></svg>
+                        </span>
+                    </div>
+                    <div class="kpi-value" id="kpi-blocked">-</div>
+                    <div class="kpi-foot">denied by Coraza or consensus</div>
+                </div>
+                <div class="card kpi kpi--rate">
+                    <div class="kpi-top">
+                        <span class="kpi-label">Block rate</span>
+                        <span class="kpi-icon" aria-hidden="true">
+                            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21.21 15.89A10 10 0 1 1 8 2.83"/><path d="M22 12A10 10 0 0 0 12 2v10z"/></svg>
+                        </span>
+                    </div>
+                    <div class="kpi-value" id="kpi-rate">-</div>
+                    <div class="kpi-foot">blocked / total</div>
+                </div>
+                <div class="card kpi kpi--latency">
+                    <div class="kpi-top">
+                        <span class="kpi-label">P95 latency</span>
+                        <span class="kpi-icon" aria-hidden="true">
+                            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polygon points="13 2 3 14 12 14 11 22 21 10 12 10 13 2"/></svg>
+                        </span>
+                    </div>
+                    <div class="kpi-value" id="kpi-p95">- ms</div>
+                    <div class="kpi-foot">last 1k requests, end-to-end</div>
+                </div>
             </div>
 
             <div class="card chart-card">
                 <div class="card-header">
-                    <h2>Traffic over time</h2>
+                    <h2>
+                        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="22 12 18 12 15 21 9 3 6 12 2 12"/></svg>
+                        Traffic over time
+                    </h2>
                     <span class="card-sub">Last 60 minutes, per-minute counts by action</span>
                 </div>
                 <canvas id="chart-traffic" height="120"></canvas>
+            </div>
+
+            <div class="split-2">
+                <div class="card ti-card" id="card-threatintel">
+                    <div class="card-header">
+                        <h2>
+                            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/><polyline points="9 12 11 14 15 10"/></svg>
+                            Blocklist status
+                        </h2>
+                        <span class="pill" id="ti-pill">checking...</span>
+                    </div>
+                    <div class="ti-headline">
+                        <span class="ti-count" id="ti-entries">-</span>
+                        <span class="ti-count-label">CIDRs<br>deny-listed</span>
+                    </div>
+                    <dl class="ti-meta">
+                        <div class="ti-meta-item"><dt>Status</dt><dd id="ti-enabled">-</dd></div>
+                        <div class="ti-meta-item"><dt>Last sync</dt><dd id="ti-last-sync">-</dd></div>
+                        <div class="ti-meta-item"><dt>Payload</dt><dd id="ti-bytes">-</dd></div>
+                        <div class="ti-meta-item"><dt>Last error</dt><dd id="ti-error">(none)</dd></div>
+                    </dl>
+                </div>
+
+                <div class="card ti-card" id="card-threatintel-sources">
+                    <div class="card-header">
+                        <h2>
+                            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><line x1="2" y1="12" x2="22" y2="12"/><path d="M12 2a15.3 15.3 0 0 1 4 10 15.3 15.3 0 0 1-4 10 15.3 15.3 0 0 1-4-10 15.3 15.3 0 0 1 4-10z"/></svg>
+                            Intel sources
+                        </h2>
+                        <span class="card-sub">Module 3 / FE-2</span>
+                    </div>
+                    <div class="ti-sources" id="ti-sources-chips" style="margin-top: 4px;">
+                        <span class="ti-source muted">loading sources...</span>
+                    </div>
+                    <p class="hint" style="margin-top: 18px;">
+                        Refreshed every <code>THREATINTEL_REFRESH_HOURS</code> hours.
+                        Atomically swapped into Coraza via <code>Engine.Reload()</code> &mdash;
+                        no proxy restart per refresh. Source IP blocking fires at
+                        Coraza <strong>phase 1</strong> via rule&nbsp;<code>1500001</code>,
+                        before content rules see the request.
+                    </p>
+                </div>
             </div>
         </section>
 
@@ -141,7 +225,7 @@
                         <input type="range" min="0" max="100" id="threshold">
                         <span class="slider-val" id="threshold-v">0.65</span>
                     </div>
-                    <span class="card-sub">Combined score at or above this becomes "block". A 0.15-band below is "review".</span>
+                    <span class="card-sub">Combined score at or above this becomes "block". Below allows the request through. Binary verdict -- no per-request review band.</span>
                 </div>
 
                 <div class="consensus-row">
@@ -188,27 +272,69 @@
         <section id="view-logs" class="view">
             <div class="card table-card">
                 <div class="card-header">
-                    <h2>Recent requests</h2>
-                    <div class="filter">
-                        <label>Filter:</label>
-                        <select id="log-filter">
-                            <option value="">All</option>
-                            <option value="block">Blocked</option>
-                            <option value="review">Review</option>
-                            <option value="allow">Allowed</option>
-                        </select>
+                    <h2>Request audit log</h2>
+                    <span class="card-sub">Full-fidelity per-request records from Mongo. Click a row to inspect features, scores, and reasons.</span>
+                </div>
+
+                <div class="log-toolbar">
+                    <div class="log-filters">
+                        <label class="log-field">
+                            <span>Action</span>
+                            <select id="lf-action">
+                                <option value="">all</option>
+                                <option value="block">block</option>
+                                <option value="allow">allow</option>
+                            </select>
+                        </label>
+                        <label class="log-field">
+                            <span>Method</span>
+                            <select id="lf-method">
+                                <option value="">any</option>
+                                <option>GET</option>
+                                <option>POST</option>
+                                <option>PUT</option>
+                                <option>DELETE</option>
+                                <option>PATCH</option>
+                                <option>OPTIONS</option>
+                                <option>TRACE</option>
+                            </select>
+                        </label>
+                        <label class="log-field">
+                            <span>Source IP</span>
+                            <input type="text" id="lf-ip" placeholder="e.g. 172.18.0.1" autocomplete="off" spellcheck="false">
+                        </label>
+                        <label class="log-field log-field--wide">
+                            <span>Path contains</span>
+                            <input type="text" id="lf-path" placeholder="e.g. /rest/user" autocomplete="off" spellcheck="false">
+                        </label>
+                        <label class="log-field log-field--narrow">
+                            <span>Per page</span>
+                            <select id="lf-limit">
+                                <option>25</option>
+                                <option selected>50</option>
+                                <option>100</option>
+                                <option>200</option>
+                            </select>
+                        </label>
+                        <button class="btn log-reset" id="lf-reset" type="button">Reset</button>
+                    </div>
+                    <div class="log-pager">
+                        <span class="log-counter" id="lf-counter">- of -</span>
+                        <button class="btn" id="lf-prev" disabled aria-label="Previous page">&larr;</button>
+                        <button class="btn" id="lf-next" disabled aria-label="Next page">&rarr;</button>
                     </div>
                 </div>
+
                 <div class="table-wrap">
-                    <table>
+                    <table class="table-clickable">
                         <thead>
                             <tr>
                                 <th>Time</th>
-                                <th>Source IP</th>
+                                <th>IP</th>
                                 <th>Method</th>
                                 <th>Path</th>
                                 <th>Action</th>
-                                <th>Score</th>
+                                <th>ML score</th>
                                 <th>Rule hits</th>
                                 <th>Latency</th>
                             </tr>
@@ -221,28 +347,104 @@
             </div>
         </section>
 
+        <!-- ===================== REQUEST DETAIL DRAWER ====================== -->
+        <div class="drawer-backdrop" id="drawer-backdrop" hidden>
+            <aside class="drawer" id="drawer" role="dialog" aria-labelledby="drawer-title">
+                <header class="drawer-header">
+                    <div>
+                        <h2 id="drawer-title">Request detail</h2>
+                        <span class="card-sub" id="drawer-subtitle">-</span>
+                    </div>
+                    <button class="btn-icon" id="drawer-close" aria-label="Close (Esc)">&times;</button>
+                </header>
+                <div class="drawer-body" id="drawer-body">
+                    <p class="empty">Loading...</p>
+                </div>
+            </aside>
+        </div>
+
         <!-- ============================ RULES =============================== -->
         <section id="view-rules" class="view">
+            <div class="card">
+                <div class="card-header">
+                    <h2>Mine new patterns</h2>
+                    <span class="card-sub">M8 FP-Growth over the audit log &rarr; M9 synthesizes draft rules into the queue below</span>
+                </div>
+                <div class="mine-controls">
+                    <label class="mine-field">
+                        <span>Min support</span>
+                        <input type="number" id="mine-support" value="0.05" min="0.001" max="1" step="0.005">
+                    </label>
+                    <label class="mine-field">
+                        <span>Lookback (h)</span>
+                        <input type="number" id="mine-lookback" value="168" min="1" max="1440">
+                    </label>
+                    <label class="mine-field">
+                        <span>Itemset size</span>
+                        <span class="mine-range">
+                            <input type="number" id="mine-min-len" value="2" min="1" max="8" step="1" title="min">
+                            -
+                            <input type="number" id="mine-max-len" value="4" min="1" max="8" step="1" title="max">
+                        </span>
+                    </label>
+                    <label class="mine-field mine-field--check">
+                        <input type="checkbox" id="mine-only-blocked" checked>
+                        <span>Mine blocked only</span>
+                    </label>
+                    <label class="mine-field mine-field--check">
+                        <input type="checkbox" id="mine-emit" checked>
+                        <span>Emit candidates</span>
+                    </label>
+                    <button class="btn btn-primary" id="mine-run" type="button">Run miner</button>
+                    <span class="mine-status" id="mine-status"></span>
+                </div>
+            </div>
+
             <div class="card table-card">
                 <div class="card-header">
-                    <h2>AI-generated rule queue</h2>
-                    <span class="card-sub">Drafts awaiting human approval before deployment to Coraza</span>
+                    <h2>Candidate rules</h2>
+                    <span class="card-sub">Promoted rules ship to <code>/etc/coraza/rules/lg-generated/</code> and trigger Coraza hot-reload</span>
+                </div>
+                <div class="rules-filters" id="rules-filters">
+                    <button class="chip chip--active" data-rule-status="">All</button>
+                    <button class="chip" data-rule-status="pending">Pending</button>
+                    <button class="chip" data-rule-status="approved">Approved</button>
+                    <button class="chip" data-rule-status="live">Live</button>
+                    <button class="chip" data-rule-status="rejected">Rejected</button>
+                    <button class="chip" data-rule-status="expired">Expired</button>
+                    <span class="rules-counter" id="rules-counter"></span>
                 </div>
                 <div class="table-wrap">
                     <table>
                         <thead>
                             <tr>
                                 <th>Rule ID</th>
-                                <th>Pattern</th>
-                                <th>Confidence</th>
                                 <th>Status</th>
-                                <th>Created</th>
+                                <th>Pattern items</th>
+                                <th>Support</th>
+                                <th>Tags</th>
+                                <th>Updated</th>
+                                <th>Actions</th>
                             </tr>
                         </thead>
                         <tbody id="rules-tbody">
-                            <tr><td colspan="5" class="empty">No drafts yet - run pattern mining to populate this queue.</td></tr>
+                            <tr><td colspan="7" class="empty">No drafts yet - run the miner above to populate this queue.</td></tr>
                         </tbody>
                     </table>
+                </div>
+            </div>
+
+            <div class="modal-backdrop" id="rule-modal-backdrop" hidden>
+                <div class="modal" role="dialog" aria-labelledby="rule-modal-title">
+                    <header class="modal-header">
+                        <h2 id="rule-modal-title">Rule</h2>
+                        <button class="btn-icon" id="rule-modal-close" aria-label="Close">&times;</button>
+                    </header>
+                    <div class="modal-body" id="rule-modal-body"></div>
+                    <footer class="modal-footer">
+                        <button class="btn" id="rule-modal-cancel" type="button">Cancel</button>
+                        <button class="btn btn-primary" id="rule-modal-save" type="button">Save edit (back to pending)</button>
+                    </footer>
                 </div>
             </div>
         </section>
@@ -262,6 +464,20 @@
         </section>
     </main>
 
+    <script src="js/auth.js"></script>
+    <script>
+        // Hard gate: any request to this page without a valid token bounces
+        // to the login screen before any other JS runs. Matches the user's
+        // requirement that 'every req hitting the admin panel is auth
+        // checked no matter the path' -- because there are no other paths
+        // (this is a SPA), guarding the bootstrap is sufficient on the
+        // dashboard side, and the API middleware enforces it on data calls.
+        if (!LG_AUTH.requireAuth()) {
+            // requireAuth() returns false when it has already started a
+            // redirect; stop loading the dashboard JS.
+            throw new Error("redirecting to login");
+        }
+    </script>
     <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.4/dist/chart.umd.min.js"></script>
     <script src="js/app.js"></script>
 </body>
