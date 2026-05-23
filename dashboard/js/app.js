@@ -635,6 +635,56 @@ if (ruleModal.cancel) ruleModal.cancel.addEventListener("click", closeRuleModal)
 if (ruleModal.backdrop) ruleModal.backdrop.addEventListener("click", (e) => {
     if (e.target === ruleModal.backdrop) closeRuleModal();
 });
+const ruleModalPreview = document.getElementById("rule-modal-preview");
+if (ruleModalPreview) {
+    ruleModalPreview.addEventListener("click", async () => {
+        const rid = ruleModal.currentId;
+        if (rid == null) return;
+        ruleModalPreview.disabled = true;
+        ruleModalPreview.textContent = "Scanning...";
+        const res = await fetchJSON(`/api/rules/candidates/${rid}/preview`, {
+            method: "POST",
+            headers: {"Content-Type": "application/json"},
+            body: JSON.stringify({ lookback_hours: 168, limit: 50 }),
+        });
+        ruleModalPreview.disabled = false;
+        ruleModalPreview.textContent = "Preview matches";
+        if (!res) { alert("Preview failed -- see console"); return; }
+        renderRulePreview(res);
+    });
+}
+
+function renderRulePreview(res) {
+    const body = document.getElementById("rule-modal-body");
+    if (!body) return;
+    const existing = document.getElementById("rule-preview-section");
+    if (existing) existing.remove();
+    const matched = res.matched || [];
+    const html = `
+        <div class="modal-section" id="rule-preview-section">
+            <label>Preview (last ${res.lookback_hours} h)</label>
+            <div class="preview-summary">
+                <span><strong>${res.total_scanned}</strong> rows scanned</span>
+                <span><strong>${matched.length}${res.total_matched === null ? "+" : ""}</strong> would match</span>
+                <span class="${res.caught_new > 0 ? "preview-new" : "muted"}">
+                    <strong>${res.caught_new}</strong> currently <code>allow</code> -- this rule would NEWLY block them
+                </span>
+            </div>
+            ${matched.length === 0
+                ? `<p class="muted">No audit rows in the lookback window match this candidate's items.</p>`
+                : `<ul class="preview-list">
+                    ${matched.map(m => `
+                        <li class="${m.would_change ? "preview-row-new" : ""}">
+                            <span class="action-tag action-${escapeHtml(m.final_action || "?")}">${escapeHtml(m.final_action || "?")}</span>
+                            <code>${escapeHtml(m.method || "?")} ${escapeHtml((m.path || "").slice(0, 80))}</code>
+                            <span class="muted">${relativeTime(m.timestamp)}</span>
+                            ${m.would_change ? `<span class="preview-arrow">&rarr; block</span>` : ""}
+                        </li>`).join("")}
+                </ul>`}
+        </div>`;
+    body.insertAdjacentHTML("beforeend", html);
+}
+
 if (ruleModal.save) ruleModal.save.addEventListener("click", async () => {
     const rid = ruleModal.currentId;
     if (rid == null) return;

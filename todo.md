@@ -10,7 +10,7 @@ Grouped by viva-impact / effort. Cross-references in `documentation/` and `docs/
 - [ ] **#1 LLM in M9** (Gemini Flash free-tier wiring) — biggest demo-quality jump
 - [ ] **#2 Sandbox-test a candidate rule before promotion** (FR5.5) — show which past requests would match the proposed rule before approving
 - [x] **#3 MFA + account lockout + brute-force alert** (SEC-1 / SEC-4 / SEC-10 bundle) — commit after this one
-- [ ] **#4 Loss-curve viz during retraining** (FR7.4)
+- [x] **#4 Loss-curve viz during retraining** (FR7.4) — commit after this one
 - [x] **#5 Decision override + reason audit** (FR4.5) — commit `6a2ae89`
 
 ---

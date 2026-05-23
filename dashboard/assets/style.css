@@ -1272,3 +1272,33 @@ tr:hover .method-tag {
     text-transform: uppercase;
     letter-spacing: 0.4px;
 }
+
+/* ---------- rule preview (FR5.5 sandbox-test) ---------- */
+.preview-summary {
+    display: flex; flex-wrap: wrap;
+    gap: 18px;
+    margin-bottom: 10px;
+    font-size: 13px;
+}
+.preview-new { color: #34D399; }
+.preview-list {
+    list-style: none;
+    padding: 0; margin: 0;
+    max-height: 260px;
+    overflow-y: auto;
+    border-top: 1px solid var(--border);
+}
+.preview-list li {
+    display: flex; gap: 10px; align-items: center;
+    padding: 5px 0;
+    border-bottom: 1px dashed var(--border);
+    font-size: 12px;
+}
+.preview-list li.preview-row-new { background: rgba(52, 211, 153, 0.06); }
+.preview-arrow {
+    color: #34D399;
+    font-weight: 600;
+    font-family: var(--font-mono);
+    font-size: 11px;
+    margin-left: auto;
+}

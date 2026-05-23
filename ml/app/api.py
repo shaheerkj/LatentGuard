@@ -14,6 +14,7 @@ from .auth import require_role
 from .consensus import ConsensusConfig, ConsensusMode, get_config, save_config
 from .db import requests_collection, rules_collection
 from .mining import MinerConfig, mine_patterns
+from .mining.miner import record_to_items
 from .models import get_store
 from .rulegen import (
     RuleStatus,
@@ -533,6 +534,108 @@ def rules_candidates_edit(
     except ValueError as exc:
         raise HTTPException(status_code=409, detail=str(exc)) from exc
     return _rule_to_payload(doc)
+
+
+class PreviewRequest(BaseModel):
+    lookback_hours: int = Field(default=168, ge=1, le=24 * 60)
+    limit: int = Field(default=50, ge=1, le=500)
+
+
+@router.post(
+    "/rules/candidates/{rule_id}/preview",
+    dependencies=[Depends(require_role(*Role.RULE_OPERATORS))],
+)
+def rules_candidates_preview(
+    rule_id: int, payload: PreviewRequest
+) -> dict[str, Any]:
+    """FR5.5 sandbox-test: replay the candidate's pattern items against
+    recent audit rows and show which would have matched.
+
+    Semantics: a candidate rule's items are an itemset (path, method,
+    fired rule IDs, IP /24, signal bands, body-present). A row "matches"
+    when its derived items are a superset of the candidate's items --
+    exactly the same predicate the miner used to surface the pattern.
+    This keeps preview and promotion logic consistent: anything that
+    would-have-matched here WILL match in Coraza once the synthesized
+    rule is live.
+
+    Returned `caught_new` is the count of matched rows whose
+    final_action was "allow" -- i.e., requests the live engine missed
+    that this candidate would now catch. That number is the headline
+    "value of approving this rule".
+    """
+    from datetime import datetime, timedelta, timezone
+
+    rule = get_rule(rule_id)
+    if not rule:
+        raise HTTPException(status_code=404, detail="rule_id not found")
+    cand_items = set((rule.get("pattern") or {}).get("items") or [])
+    if not cand_items:
+        return {
+            "candidate_items": [],
+            "matched": [],
+            "total_matched": 0,
+            "total_scanned": 0,
+            "caught_new": 0,
+            "note": "candidate has no items to match against -- edit by hand to refine",
+        }
+
+    since = datetime.now(timezone.utc) - timedelta(hours=payload.lookback_hours)
+    try:
+        col = requests_collection()
+        cursor = (
+            col.find(
+                {"timestamp": {"$gte": since}},
+                {
+                    "_id": 0,
+                    "request_id": 1,
+                    "timestamp": 1,
+                    "method": 1,
+                    "path": 1,
+                    "canonical_path": 1,
+                    "canonical_body": 1,
+                    "source_ip": 1,
+                    "rule_hits": 1,
+                    "ml_anomaly_score": 1,
+                    "ml_outlier_score": 1,
+                    "final_action": 1,
+                },
+            )
+            .sort("timestamp", -1)
+            .limit(20000)
+        )
+    except PyMongoError as exc:
+        raise HTTPException(status_code=503, detail="storage unavailable") from exc
+
+    matched: list[dict[str, Any]] = []
+    total_scanned = 0
+    caught_new = 0
+    for doc in cursor:
+        total_scanned += 1
+        row_items = set(record_to_items(doc))
+        if cand_items.issubset(row_items):
+            would_change = doc.get("final_action") == "allow"
+            if would_change:
+                caught_new += 1
+            if len(matched) < payload.limit:
+                ts = doc.get("timestamp")
+                matched.append({
+                    "request_id": doc.get("request_id"),
+                    "timestamp": ts.isoformat() if hasattr(ts, "isoformat") else str(ts),
+                    "method": doc.get("method"),
+                    "path": doc.get("path"),
+                    "final_action": doc.get("final_action"),
+                    "would_change": would_change,
+                })
+
+    return {
+        "candidate_items": sorted(cand_items),
+        "matched": matched,
+        "total_matched": len(matched) if len(matched) < payload.limit else None,
+        "total_scanned": total_scanned,
+        "caught_new": caught_new,
+        "lookback_hours": payload.lookback_hours,
+    }
 
 
 @router.delete(
