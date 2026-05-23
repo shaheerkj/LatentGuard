@@ -28,6 +28,7 @@
         <div class="status">
             <span id="safe-mode-pill" class="pill pill--ok">ML</span>
             <span id="ti-status-pill" class="pill pill--neutral">Threat intel</span>
+            <span id="drift-pill" class="pill pill--neutral" title="Autoencoder anomaly-score drift vs baseline window">Drift: -</span>
             <span class="topbar-user" id="topbar-user" title="Signed in"></span>
             <button class="btn btn-icon-text" id="logout-btn" type="button" title="Sign out">Sign out</button>
         </div>
@@ -364,26 +365,86 @@
 
         <!-- ============================ RULES =============================== -->
         <section id="view-rules" class="view">
+            <div class="card">
+                <div class="card-header">
+                    <h2>Mine new patterns</h2>
+                    <span class="card-sub">M8 FP-Growth over the audit log &rarr; M9 synthesizes draft rules into the queue below</span>
+                </div>
+                <div class="mine-controls">
+                    <label class="mine-field">
+                        <span>Min support</span>
+                        <input type="number" id="mine-support" value="0.05" min="0.001" max="1" step="0.005">
+                    </label>
+                    <label class="mine-field">
+                        <span>Lookback (h)</span>
+                        <input type="number" id="mine-lookback" value="168" min="1" max="1440">
+                    </label>
+                    <label class="mine-field">
+                        <span>Itemset size</span>
+                        <span class="mine-range">
+                            <input type="number" id="mine-min-len" value="2" min="1" max="8" step="1" title="min">
+                            -
+                            <input type="number" id="mine-max-len" value="4" min="1" max="8" step="1" title="max">
+                        </span>
+                    </label>
+                    <label class="mine-field mine-field--check">
+                        <input type="checkbox" id="mine-only-blocked" checked>
+                        <span>Mine blocked only</span>
+                    </label>
+                    <label class="mine-field mine-field--check">
+                        <input type="checkbox" id="mine-emit" checked>
+                        <span>Emit candidates</span>
+                    </label>
+                    <button class="btn btn-primary" id="mine-run" type="button">Run miner</button>
+                    <span class="mine-status" id="mine-status"></span>
+                </div>
+            </div>
+
             <div class="card table-card">
                 <div class="card-header">
-                    <h2>AI-generated rule queue</h2>
-                    <span class="card-sub">Drafts awaiting human approval before deployment to Coraza</span>
+                    <h2>Candidate rules</h2>
+                    <span class="card-sub">Promoted rules ship to <code>/etc/coraza/rules/lg-generated/</code> and trigger Coraza hot-reload</span>
+                </div>
+                <div class="rules-filters" id="rules-filters">
+                    <button class="chip chip--active" data-rule-status="">All</button>
+                    <button class="chip" data-rule-status="pending">Pending</button>
+                    <button class="chip" data-rule-status="approved">Approved</button>
+                    <button class="chip" data-rule-status="live">Live</button>
+                    <button class="chip" data-rule-status="rejected">Rejected</button>
+                    <button class="chip" data-rule-status="expired">Expired</button>
+                    <span class="rules-counter" id="rules-counter"></span>
                 </div>
                 <div class="table-wrap">
                     <table>
                         <thead>
                             <tr>
                                 <th>Rule ID</th>
-                                <th>Pattern</th>
-                                <th>Confidence</th>
                                 <th>Status</th>
-                                <th>Created</th>
+                                <th>Pattern items</th>
+                                <th>Support</th>
+                                <th>Tags</th>
+                                <th>Updated</th>
+                                <th>Actions</th>
                             </tr>
                         </thead>
                         <tbody id="rules-tbody">
-                            <tr><td colspan="5" class="empty">No drafts yet - run pattern mining to populate this queue.</td></tr>
+                            <tr><td colspan="7" class="empty">No drafts yet - run the miner above to populate this queue.</td></tr>
                         </tbody>
                     </table>
+                </div>
+            </div>
+
+            <div class="modal-backdrop" id="rule-modal-backdrop" hidden>
+                <div class="modal" role="dialog" aria-labelledby="rule-modal-title">
+                    <header class="modal-header">
+                        <h2 id="rule-modal-title">Rule</h2>
+                        <button class="btn-icon" id="rule-modal-close" aria-label="Close">&times;</button>
+                    </header>
+                    <div class="modal-body" id="rule-modal-body"></div>
+                    <footer class="modal-footer">
+                        <button class="btn" id="rule-modal-cancel" type="button">Cancel</button>
+                        <button class="btn btn-primary" id="rule-modal-save" type="button">Save edit (back to pending)</button>
+                    </footer>
                 </div>
             </div>
         </section>

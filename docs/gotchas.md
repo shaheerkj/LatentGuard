@@ -285,3 +285,41 @@ Numbering is preserved from the historical CLAUDE.md so cross-references
     otherwise. The `ADMIN_PASSWORD_HASH` line in our compose escapes
     every `$` -> `$$` for this reason. Same applies to any other secret
     that happens to contain dollar signs.
+
+31. **`[ML]` Don't import `mlxtend` / `pandas` at module top-level.**
+    They pull in ~50MB of state and a slow numpy fork; cold-starting the
+    FastAPI process for an unrelated /api call would block on the import
+    chain. `app/mining/miner.py` does both imports inside `mine_patterns()`
+    so the cost is only paid when the operator triggers /api/mining/run.
+    Same pattern as `models.py` deferring `tensorflow` / `hdbscan`.
+
+32. **`[INFRA]` Generated rules live on the `lg-generated-rules` named
+    volume mounted on BOTH `ml` and `proxy` at
+    `/etc/coraza/rules/lg-generated/`.** The promoter writes
+    `lg-<rule_id>.conf` files (one per live rule); Coraza's
+    `loadRuleFiles` walks the rules dir recursively for `*.conf` so the
+    sub-directory is picked up automatically on the next `Engine.Reload()`.
+    Mongo (`rules_queue` collection) is the source of truth; the disk
+    files are a projection rewritten end-to-end on every promote/expire.
+    If you ever see a stale `lg-*.conf` after expiring a rule, the
+    promoter's `_write_live_rules()` failed to remove it -- check the
+    container's filesystem perms on the volume mount.
+
+33. **`[DESIGN]` Rule-ID bands are reserved per source.** Baseline rules
+    use 1000000-1099999, OWASP CRS uses ~900000-999999, and
+    M9 mined/synthesized rules use 2000000-2999999. The allocator in
+    `rulegen/store.py:_next_rule_id` enforces the LG band; if you ever
+    hand-write a rule outside its band you risk a Coraza "duplicate id"
+    error on reload that's hell to debug. When the 2M band fills up,
+    expire old rules rather than widening the band -- a 1M-rule
+    Coraza ruleset would be unusable anyway.
+
+34. **`[ML]` The ML service signs its own JWT to call the proxy's
+    `/__reload` endpoint.** `rulegen/promoter._trigger_proxy_reload`
+    calls `auth.issue_token("ml-service")` and sends the token as a
+    bearer header. The proxy's verifier accepts it because they share
+    `JWT_SECRET` and the `iss: latentguard` claim matches (same
+    issuer for service-to-service as user-to-service). The `sub` is
+    `"ml-service"` to make it greppable in proxy logs vs human logins.
+    If reload starts failing with 401 in prod, check that the proxy
+    is on the same JWT_SECRET (see gotcha #29).

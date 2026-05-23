@@ -45,21 +45,21 @@ Read `docs/architecture.md` for the full picture.
 
 ---
 
-## Module status (7 / 11 done)
+## Module status (10.5 / 11 done)
 
 | # | Module | Status |
 |---|---|---|
 | 1 | Reverse proxy + TLS | DONE |
 | 2 | Normalisation + features | DONE |
-| 3 | Rule engine + threat-intel | DONE (this session) |
+| 3 | Rule engine + threat-intel | DONE |
 | 4 | Autoencoder | DONE |
 | 5 | HDBSCAN cluster validation | DONE |
 | 6 | Multi-signal consensus | DONE (binary verdict, no review band) |
 | 7 | Audit log / Mongo | DONE |
-| 8 | FP-Growth attack-pattern miner | not started — FYP-II Phase B |
-| 9 | LLM rule synthesis | not started — FYP-II Phase B |
-| 10 | HITL rule approval (NOT per-request) | not started — FYP-II Phase C |
-| 11 | Continuous learning / drift watch | not started — FYP-II Phase D |
+| 8 | FP-Growth attack-pattern miner | DONE — `ml/app/mining/` |
+| 9 | Rule synthesis orchestrator | DONE-stub — `ml/app/rulegen/orchestrator.py` (template renderer; LLM_PROVIDER=openai/anthropic deferred) |
+| 10 | HITL rule approval + promotion | DONE — rules tab + `/api/rules/candidates/*` + proxy `/__reload` |
+| 11 | Continuous learning / drift watch | PARTIAL — AE anomaly-score drift z-score (`/api/models/drift`); retrain trigger deferred |
 
 Current branch: **`fyp-II`** (off `main`). Branch conventions and the
 submission-snapshot `fyp-1` branch are explained in `docs/preferences.md`.
@@ -105,8 +105,21 @@ search the SRS / SDS markdown to confirm the spec.
 Maintain this manually when you commit — it's the fastest answer to
 "what happened last session?".
 
-- *(pending commit)* — operator-panel auth: ML-side JWT login (bcrypt +
-  HS256) gating `/api/*`, shared JWT_SECRET so the Go proxy verifies the
+- *(pending commit)* — M8 FP-Growth miner (`ml/app/mining/`), M9 stub
+  orchestrator (`ml/app/rulegen/orchestrator.py`, LLM_PROVIDER=stub
+  default; openai/anthropic hooks are stubs awaiting a key), M10
+  candidate-rules approval UI (rules tab: chips filter, mine controls,
+  approve/reject/edit/expire/delete; `/api/rules/candidates/*` endpoints
+  + `rules_queue` Mongo state machine), promoter writes approved rules
+  to shared `lg-generated-rules` volume mounted on both ml + proxy at
+  `/etc/coraza/rules/lg-generated/` and POSTs `/__reload` (JWT-gated via
+  shared secret + `auth.issue_token('ml-service')`) so Coraza
+  `Engine.Reload()` picks up the new rules. M11-partial: AE drift watch
+  `/api/models/drift` (z-score window vs baseline) + topbar pill.
+  Default credentials swapped to `shaheerkj / v59q1rg8EOfykTXUUp1b`
+  (20-char alnum); login page hint removed.
+- `5a9843d` — operator-panel auth: ML-side JWT login (bcrypt + HS256)
+  gating `/api/*`, shared JWT_SECRET so the Go proxy verifies the
   same tokens on `/__threatintel` and `/__safe-mode`, dashboard login
   page + token-aware `fetch` wrapper, sign-out pill in the topbar.
   `/healthz` and `/__healthz` stay public for docker healthchecks.

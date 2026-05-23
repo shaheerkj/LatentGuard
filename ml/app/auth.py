@@ -37,9 +37,10 @@ from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
 
 logger = logging.getLogger("latentguard.ml.auth")
 
-# bcrypt('admin') with cost factor 12. Demo-only -- override in any deployment
-# you'd let a stranger near. Generated 2026-05-22, verified via bcrypt.checkpw.
-DEFAULT_ADMIN_HASH = "$2b$12$rW5Klgjyjbq2uYwsd0qGReu7Bk1b8mSufakMHE3dX47aGW4sUsocW"
+# bcrypt of the project owner's demo password (20-char random alnum), cost 12.
+# Real credential lives outside the repo; this hash is the only thing checked
+# in. Override ADMIN_PASSWORD_HASH in any deployment that matters.
+DEFAULT_ADMIN_HASH = "$2b$12$nb3EVaoj8KMD2s2OtwCrN.6gL91P7lfE3EzUu45FXgtcrTm75cnRe"
 
 JWT_ALGORITHM = "HS256"
 JWT_ISSUER = "latentguard"
@@ -56,7 +57,7 @@ class AuthConfig:
 
 
 def _load_config() -> AuthConfig:
-    user = os.environ.get("ADMIN_USER", "admin").strip() or "admin"
+    user = os.environ.get("ADMIN_USER", "shaheerkj").strip() or "shaheerkj"
     pwd_hash = os.environ.get("ADMIN_PASSWORD_HASH", "").strip()
     using_default = False
     if not pwd_hash:

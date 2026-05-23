@@ -38,13 +38,21 @@ services:
       # Operator auth (shared with the Go proxy via JWT_SECRET). Override
       # ADMIN_PASSWORD_HASH with a real bcrypt hash before exposing this
       # stack -- the default below is bcrypt('admin'), demo-grade only.
-      ADMIN_USER: "admin"
-      ADMIN_PASSWORD_HASH: "$$2b$$12$$rW5Klgjyjbq2uYwsd0qGReu7Bk1b8mSufakMHE3dX47aGW4sUsocW"
+      ADMIN_USER: "shaheerkj"
+      ADMIN_PASSWORD_HASH: "$$2b$$12$$nb3EVaoj8KMD2s2OtwCrN.6gL91P7lfE3EzUu45FXgtcrTm75cnRe"
       JWT_SECRET: "dev-only-secret-change-me-for-anything-non-local"
       JWT_TTL_HOURS: "12"
+      # M9/M10: shared dir with the proxy where promoted rules land.
+      # Same named volume on both sides so the ML side can write files
+      # the proxy's Coraza engine picks up on /__reload.
+      LG_GENERATED_RULES_DIR: "/etc/coraza/rules/lg-generated"
+      PROXY_RELOAD_URL: "http://proxy:8080/__reload"
+      # LLM_PROVIDER: stub|openai|anthropic. Defaults to stub (no key needed).
+      LLM_PROVIDER: "stub"
     volumes:
       - ../ml/models:/app/models      # trained artifacts persist & are host-editable
       - ../datasets/raw:/app/csic_raw # cached CSIC downloads
+      - lg-generated-rules:/etc/coraza/rules/lg-generated
     depends_on:
       - mongo
     networks:
@@ -88,6 +96,11 @@ services:
       - mongo
       - ml
       - juiceshop
+    volumes:
+      # M9/M10: shared dir holding promoted rules from the ML service.
+      # Coraza's loadRuleFiles walks rulesDir recursively for *.conf so
+      # files under lg-generated/ are picked up on the next Reload().
+      - lg-generated-rules:/etc/coraza/rules/lg-generated
     networks:
       - latentguard
 
@@ -104,6 +117,7 @@ services:
 
 volumes:
   mongo-data:
+  lg-generated-rules:
 
 networks:
   latentguard:

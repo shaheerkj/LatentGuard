@@ -407,21 +407,202 @@ async function openRequestDrawer(requestId) {
         </section>`;
 }
 
+// ---------------------------- M8/M9/M10 rules tab -------------------------
+const rulesState = { status: "", lastRows: [] };
+
 async function refreshRules() {
-    const rows = await fetchJSON("/api/rules");
-    if (!rows) return;
+    const qs = rulesState.status ? `?status=${encodeURIComponent(rulesState.status)}` : "";
+    const data = await fetchJSON(`/api/rules/candidates${qs}`);
+    if (!data) return;
+    const rows = data.rows || [];
+    rulesState.lastRows = rows;
+    const counter = document.getElementById("rules-counter");
+    if (counter) counter.textContent = `${rows.length} shown`;
     if (rows.length === 0) {
-        els.rulesBody.innerHTML = `<tr><td colspan="5" class="empty">No drafts yet - run pattern mining to populate this queue.</td></tr>`;
+        els.rulesBody.innerHTML = `<tr><td colspan="7" class="empty">No rules match this filter.</td></tr>`;
         return;
     }
-    els.rulesBody.innerHTML = rows.map(r => `
-        <tr>
-            <td>${r.rule_id}</td>
-            <td>${truncate(r.pattern || "-", 50)}</td>
-            <td>${fmt3(r.confidence ?? 0)}</td>
-            <td><span class="action-tag action-${r.status === 'approved' ? 'allow' : r.status === 'rejected' ? 'block' : 'review'}">${r.status || "pending"}</span></td>
-            <td>${r.created_at ? formatTime(r.created_at) : "-"}</td>
-        </tr>`).join("");
+    els.rulesBody.innerHTML = rows.map(r => {
+        const items = (r.pattern && r.pattern.items) || [];
+        const supportPct = r.pattern && r.pattern.support != null
+            ? (r.pattern.support * 100).toFixed(1) + "%"
+            : "-";
+        const tags = (r.tags || []).map(t => `<span class="tag-chip">${escapeHtml(t)}</span>`).join("");
+        return `<tr data-rule-id="${r.rule_id}">
+            <td><code>${r.rule_id}</code></td>
+            <td><span class="status-pill status-${r.status}">${r.status}</span></td>
+            <td class="items-cell">${items.map(i => `<span class="item-chip">${escapeHtml(i)}</span>`).join("")}</td>
+            <td>${supportPct}</td>
+            <td>${tags || "-"}</td>
+            <td title="${formatDateTime(r.updated_at)}">${relativeTime(r.updated_at)}</td>
+            <td class="actions-cell">${renderRuleActions(r)}</td>
+        </tr>`;
+    }).join("");
+}
+
+function renderRuleActions(r) {
+    const buttons = [];
+    buttons.push(`<button class="btn btn-sm" data-rule-act="view" data-rule-id="${r.rule_id}">View</button>`);
+    if (r.status === "pending") {
+        buttons.push(`<button class="btn btn-sm btn-primary" data-rule-act="approve" data-rule-id="${r.rule_id}">Approve</button>`);
+        buttons.push(`<button class="btn btn-sm btn-danger" data-rule-act="reject" data-rule-id="${r.rule_id}">Reject</button>`);
+    } else if (r.status === "approved" || r.status === "live") {
+        buttons.push(`<button class="btn btn-sm btn-danger" data-rule-act="expire" data-rule-id="${r.rule_id}">Expire</button>`);
+    } else if (r.status === "rejected" || r.status === "expired") {
+        buttons.push(`<button class="btn btn-sm" data-rule-act="delete" data-rule-id="${r.rule_id}">Delete</button>`);
+    }
+    return buttons.join(" ");
+}
+
+// Single delegated handler so freshly-rendered rows pick up clicks.
+els.rulesBody && els.rulesBody.addEventListener("click", async (e) => {
+    const btn = e.target.closest("[data-rule-act]");
+    if (!btn) return;
+    const ruleId = Number(btn.dataset.ruleId);
+    const act = btn.dataset.ruleAct;
+    btn.disabled = true;
+    try {
+        if (act === "view") return openRuleModal(ruleId);
+        const path = `/api/rules/candidates/${ruleId}/${act === "delete" ? "" : act}`;
+        const init = act === "delete"
+            ? { method: "DELETE" }
+            : { method: "POST", headers: {"Content-Type": "application/json"}, body: JSON.stringify({}) };
+        const res = await fetchJSON(act === "delete" ? `/api/rules/candidates/${ruleId}` : path, init);
+        if (res === null) {
+            alert(`Action ${act} failed - see console`);
+        }
+    } finally {
+        btn.disabled = false;
+        refreshRules();
+    }
+});
+
+// Status filter chips.
+const rulesFilters = document.getElementById("rules-filters");
+if (rulesFilters) {
+    rulesFilters.addEventListener("click", (e) => {
+        const chip = e.target.closest("[data-rule-status]");
+        if (!chip) return;
+        rulesState.status = chip.dataset.ruleStatus;
+        rulesFilters.querySelectorAll(".chip").forEach(c =>
+            c.classList.toggle("chip--active", c === chip));
+        refreshRules();
+    });
+}
+
+// Mining controls.
+const mineRunBtn = document.getElementById("mine-run");
+const mineStatusEl = document.getElementById("mine-status");
+if (mineRunBtn) {
+    mineRunBtn.addEventListener("click", async () => {
+        const payload = {
+            min_support: Number(document.getElementById("mine-support").value) || 0.05,
+            min_itemset_len: Number(document.getElementById("mine-min-len").value) || 2,
+            max_itemset_len: Number(document.getElementById("mine-max-len").value) || 4,
+            lookback_hours: Number(document.getElementById("mine-lookback").value) || 168,
+            only_blocked: document.getElementById("mine-only-blocked").checked,
+            emit_candidates: document.getElementById("mine-emit").checked,
+        };
+        mineRunBtn.disabled = true;
+        if (mineStatusEl) mineStatusEl.textContent = "running...";
+        const result = await fetchJSON("/api/mining/run", {
+            method: "POST",
+            headers: {"Content-Type": "application/json"},
+            body: JSON.stringify(payload),
+        });
+        mineRunBtn.disabled = false;
+        if (!result) {
+            if (mineStatusEl) mineStatusEl.textContent = "failed - see console";
+            return;
+        }
+        const synth = result.synthesis || {};
+        const inserted = (synth.inserted || []).length;
+        const refreshed = (synth.refreshed || []).length;
+        if (mineStatusEl) {
+            mineStatusEl.textContent =
+                `${result.transactions} txns, ${(result.patterns || []).length} patterns, ` +
+                `${inserted} new + ${refreshed} refreshed candidates ` +
+                `(${result.elapsed_ms} ms)`;
+        }
+        refreshRules();
+    });
+}
+
+// Rule modal (view + edit).
+const ruleModal = {
+    backdrop: document.getElementById("rule-modal-backdrop"),
+    body:     document.getElementById("rule-modal-body"),
+    title:    document.getElementById("rule-modal-title"),
+    save:     document.getElementById("rule-modal-save"),
+    cancel:   document.getElementById("rule-modal-cancel"),
+    close:    document.getElementById("rule-modal-close"),
+    currentId: null,
+};
+function closeRuleModal() {
+    if (ruleModal.backdrop) ruleModal.backdrop.hidden = true;
+    ruleModal.currentId = null;
+}
+if (ruleModal.close)  ruleModal.close.addEventListener("click", closeRuleModal);
+if (ruleModal.cancel) ruleModal.cancel.addEventListener("click", closeRuleModal);
+if (ruleModal.backdrop) ruleModal.backdrop.addEventListener("click", (e) => {
+    if (e.target === ruleModal.backdrop) closeRuleModal();
+});
+if (ruleModal.save) ruleModal.save.addEventListener("click", async () => {
+    const rid = ruleModal.currentId;
+    if (rid == null) return;
+    const text = document.getElementById("rule-edit-text");
+    const msg = document.getElementById("rule-edit-message");
+    const notes = document.getElementById("rule-edit-notes");
+    ruleModal.save.disabled = true;
+    const res = await fetchJSON(`/api/rules/candidates/${rid}`, {
+        method: "PUT",
+        headers: {"Content-Type": "application/json"},
+        body: JSON.stringify({
+            rule_text: text ? text.value : null,
+            message:   msg ? msg.value : null,
+            notes:     notes ? notes.value : null,
+        }),
+    });
+    ruleModal.save.disabled = false;
+    if (res) {
+        closeRuleModal();
+        refreshRules();
+    } else {
+        alert("Edit failed - see console");
+    }
+});
+
+async function openRuleModal(rid) {
+    const r = await fetchJSON(`/api/rules/candidates/${rid}`);
+    if (!r || !ruleModal.backdrop) return;
+    ruleModal.currentId = rid;
+    ruleModal.title.textContent = `Rule ${rid} (${r.status})`;
+    const history = (r.edit_history || []).slice(-5).reverse().map(h =>
+        `<li><span class="muted">${formatDateTime(h.at)}</span> &mdash; ${escapeHtml(h.actor || "?")}: ${escapeHtml(h.from)} &rarr; ${escapeHtml(h.to)}${h.note ? " (" + escapeHtml(h.note) + ")" : ""}</li>`
+    ).join("") || "<li class='muted'>no history</li>";
+    ruleModal.body.innerHTML = `
+        <div class="modal-section">
+            <label>Message</label>
+            <input type="text" id="rule-edit-message" value="${escapeHtml(r.message || "")}">
+        </div>
+        <div class="modal-section">
+            <label>Rule text (ModSecurity)</label>
+            <textarea id="rule-edit-text" rows="12" spellcheck="false">${escapeHtml(r.rule_text || "")}</textarea>
+        </div>
+        <div class="modal-section">
+            <label>Notes (operator-only, never deployed)</label>
+            <input type="text" id="rule-edit-notes" value="${escapeHtml(r.notes || "")}">
+        </div>
+        <div class="modal-section">
+            <label>Pattern</label>
+            <div>${((r.pattern && r.pattern.items) || []).map(i => `<span class="item-chip">${escapeHtml(i)}</span>`).join(" ")}</div>
+            <div class="muted">support ${(r.pattern && r.pattern.support != null) ? (r.pattern.support * 100).toFixed(2) + "%" : "-"} &middot; ${(r.pattern && r.pattern.support_count) || 0} of ${(r.pattern && r.pattern.support_count != null) ? "..." : "?"} transactions</div>
+        </div>
+        <div class="modal-section">
+            <label>State history</label>
+            <ul class="history-list">${history}</ul>
+        </div>`;
+    ruleModal.backdrop.hidden = false;
 }
 
 function truncate(s, n) {
@@ -598,10 +779,34 @@ async function refreshThreatIntel() {
         : sources.map(u => `<span class="ti-source" title="${escapeHtml(u)}">${escapeHtml(shortenURL(u))}</span>`).join("");
 }
 
+async function refreshDrift() {
+    const pill = document.getElementById("drift-pill");
+    if (!pill) return;
+    const d = await fetchJSON("/api/models/drift?window_min=60&baseline_min=1440");
+    if (!d) {
+        pill.className = "pill pill--danger";
+        pill.textContent = "Drift: down";
+        return;
+    }
+    if (d.z_score == null) {
+        pill.className = "pill pill--neutral";
+        pill.textContent = `Drift: warm-up (${d.window.n}/${d.baseline.n})`;
+        return;
+    }
+    const z = d.z_score;
+    const klass = d.drift_detected
+        ? (z > 0 ? "pill pill--danger" : "pill pill--warn")
+        : "pill pill--ok";
+    pill.className = klass;
+    pill.textContent = `Drift z=${z.toFixed(2)}${d.drift_detected ? " !" : ""}`;
+    pill.title = `Window n=${d.window.n} mean=${d.window.mean.toFixed(3)} | ` +
+                 `Baseline n=${d.baseline.n} mean=${d.baseline.mean.toFixed(3)} std=${d.baseline.std.toFixed(3)}`;
+}
+
 async function tick() {
     await Promise.all([
         refreshHealth(), refreshMetrics(), refreshTraffic(), refreshLogs(), refreshRules(),
-        refreshModels(), refreshDecisions(), refreshThreatIntel(),
+        refreshModels(), refreshDecisions(), refreshThreatIntel(), refreshDrift(),
     ]);
 }
 

@@ -159,7 +159,7 @@ func main() {
 	// be in the allowed list for the browser to send the JWT on real requests.
 	corsHeaders := func(w http.ResponseWriter) {
 		w.Header().Set("Access-Control-Allow-Origin", "*")
-		w.Header().Set("Access-Control-Allow-Methods", "GET, OPTIONS")
+		w.Header().Set("Access-Control-Allow-Methods", "GET, POST, OPTIONS")
 		w.Header().Set("Access-Control-Allow-Headers", "Content-Type, Authorization")
 	}
 
@@ -194,6 +194,32 @@ func main() {
 		_ = json.NewEncoder(w).Encode(tiManager.Status())
 	})
 	mux.Handle("/__threatintel", verifier.Middleware(threatintelHandler))
+
+	// /__reload: M9/M10 trigger -- the ML service POSTs here after writing
+	// promoted rule files into the shared lg-generated dir. We just call
+	// Engine.Reload() (same path used by threat-intel hot reload) and return
+	// the file count. Auth-gated by the shared JWT secret; the ML service
+	// signs itself in via auth.issue_token("ml-service") before calling.
+	reloadHandler := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		corsHeaders(w)
+		w.Header().Set("Content-Type", "application/json")
+		if r.Method != http.MethodPost && r.Method != http.MethodGet {
+			http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+			return
+		}
+		started := time.Now()
+		if err := wafEngine.Reload(); err != nil {
+			log.Printf("reload: %v", err)
+			http.Error(w, "reload failed: "+err.Error(), http.StatusInternalServerError)
+			return
+		}
+		_ = json.NewEncoder(w).Encode(map[string]any{
+			"ok":         true,
+			"elapsed_ms": time.Since(started).Milliseconds(),
+			"rules_dir":  cfg.rulesDir,
+		})
+	})
+	mux.Handle("/__reload", verifier.Middleware(reloadHandler))
 	mux.Handle("/", pipeline.Handler(wafEngine, mlc, store, safe, reverse))
 
 	server := &http.Server{
