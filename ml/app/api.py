@@ -667,6 +667,92 @@ def _request_actor(request: Request) -> str:
 # ---------------------------------------------------------------------------
 
 
+@router.get("/models/accuracy")
+def models_accuracy(
+    lookback_hours: int = Query(default=168, ge=1, le=24 * 60),
+    fpr_alert: float = Query(default=0.05, ge=0.0, le=1.0),
+    recall_alert: float = Query(default=0.90, ge=0.0, le=1.0),
+) -> dict[str, Any]:
+    """FR-MON-1: model accuracy panel.
+
+    Ground truth: we treat the operator-supplied decision overrides
+    (#5 FR4.5) as labels:
+        original=block + override.verdict=allow  -> false positive
+        original=allow + override.verdict=block  -> false negative
+        no override at all                       -> trust the verdict
+    This is weak supervision -- operators only override what they
+    notice -- but it's the only labelled signal we have without a
+    formal red-team campaign. Numbers should be interpreted as a
+    *floor* on accuracy, not an absolute.
+
+    Computed metrics over the lookback window:
+        TP  blocks not overridden (or overridden again to block)
+        TN  allows not overridden (or overridden again to allow)
+        FP  blocks overridden to allow
+        FN  allows overridden to block
+        precision = TP / (TP + FP)
+        recall    = TP / (TP + FN)
+        FPR       = FP / (FP + TN)
+        F1        = 2 * P * R / (P + R)
+
+    `alert.fpr_high` and `alert.recall_low` boolean flags are wired
+    so the dashboard can flip a pill colour without re-thresholding
+    client-side.
+    """
+    try:
+        from datetime import datetime, timedelta, timezone
+        since = datetime.now(timezone.utc) - timedelta(hours=lookback_hours)
+        col = requests_collection()
+        cursor = col.find(
+            {"timestamp": {"$gte": since}},
+            {"_id": 0, "final_action": 1, "overrides": 1},
+        )
+        tp = tn = fp = fn = total = 0
+        for row in cursor:
+            total += 1
+            action = row.get("final_action")
+            overrides = row.get("overrides") or []
+            # Latest override (if any) is the operator's authoritative label.
+            label = action
+            if overrides:
+                last = overrides[-1]
+                if isinstance(last, dict) and last.get("verdict") in ("allow", "block"):
+                    label = last["verdict"]
+            if action == "block" and label == "block":
+                tp += 1
+            elif action == "allow" and label == "allow":
+                tn += 1
+            elif action == "block" and label == "allow":
+                fp += 1
+            elif action == "allow" and label == "block":
+                fn += 1
+        precision = tp / (tp + fp) if (tp + fp) > 0 else None
+        recall = tp / (tp + fn) if (tp + fn) > 0 else None
+        fpr = fp / (fp + tn) if (fp + tn) > 0 else None
+        f1 = (2 * precision * recall / (precision + recall)
+              if precision and recall and (precision + recall) > 0 else None)
+
+        fpr_high = fpr is not None and fpr > fpr_alert
+        recall_low = recall is not None and recall < recall_alert
+        return {
+            "lookback_hours": lookback_hours,
+            "total": total,
+            "tp": tp, "tn": tn, "fp": fp, "fn": fn,
+            "precision": precision,
+            "recall": recall,
+            "f1": f1,
+            "false_positive_rate": fpr,
+            "alert": {
+                "fpr_high": fpr_high,
+                "recall_low": recall_low,
+                "fpr_threshold": fpr_alert,
+                "recall_threshold": recall_alert,
+            },
+        }
+    except PyMongoError as exc:
+        raise HTTPException(status_code=503, detail=f"storage error: {exc}") from exc
+
+
 @router.get("/models/drift")
 def models_drift(
     window_min: int = Query(default=60, ge=5, le=1440),

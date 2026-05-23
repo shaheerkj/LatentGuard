@@ -1320,3 +1320,30 @@ tr:hover .method-tag {
 .safe-mode-banner-body strong { color: #FEE2E2; }
 .safe-mode-since { font-size: 11.5px; }
 .safe-mode-banner-actions { display: flex; gap: 8px; }
+
+/* ---------- FR-MON-1 accuracy panel ---------- */
+.accuracy-card { margin-bottom: 18px; }
+.accuracy-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(160px, 1fr));
+    gap: 12px 24px;
+    padding: 14px 18px;
+}
+.accuracy-metric dt {
+    font-size: 11px;
+    text-transform: uppercase;
+    letter-spacing: 0.4px;
+    color: var(--text-faint);
+    margin-bottom: 4px;
+}
+.accuracy-metric dd {
+    margin: 0;
+    font-family: var(--font-mono);
+    font-size: 18px;
+    color: var(--text);
+}
+.accuracy-note {
+    padding: 0 18px 14px;
+    font-size: 12px;
+    margin: 0;
+}

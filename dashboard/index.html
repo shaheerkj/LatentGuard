@@ -31,6 +31,7 @@
             <span id="ti-status-pill" class="pill pill--neutral">Threat intel</span>
             <span id="drift-pill" class="pill pill--neutral" title="Autoencoder anomaly-score drift vs baseline window">Drift: -</span>
             <span id="bruteforce-pill" class="pill pill--ok" title="IPs with >10 failed logins in the last 5 minutes">Auth: clean</span>
+            <span id="accuracy-pill" class="pill pill--neutral" title="Model accuracy from operator overrides">Accuracy: -</span>
             <span class="topbar-user" id="topbar-user" title="Signed in"></span>
             <span class="topbar-role pill pill--neutral" id="topbar-role" title="Current role">role: -</span>
             <button class="btn btn-icon-text" id="logout-btn" type="button" title="Sign out">Sign out</button>
@@ -154,6 +155,23 @@
 
         <!-- ====================== ANOMALY MODELS (M3) ======================= -->
         <section id="view-models" class="view">
+            <div class="card accuracy-card" id="accuracy-card">
+                <div class="card-header">
+                    <h2>Model accuracy (operator-labelled)</h2>
+                    <span class="card-sub">Computed from decision overrides over the last 7 days (FR-MON-1)</span>
+                </div>
+                <div class="accuracy-grid">
+                    <div class="kv accuracy-metric"><dt>Precision</dt><dd id="acc-precision">-</dd></div>
+                    <div class="kv accuracy-metric"><dt>Recall</dt><dd id="acc-recall">-</dd></div>
+                    <div class="kv accuracy-metric"><dt>F1</dt><dd id="acc-f1">-</dd></div>
+                    <div class="kv accuracy-metric"><dt>FPR</dt><dd id="acc-fpr">-</dd></div>
+                    <div class="kv accuracy-metric"><dt>TP / TN / FP / FN</dt><dd id="acc-confusion">-</dd></div>
+                    <div class="kv accuracy-metric"><dt>Sample</dt><dd id="acc-sample">-</dd></div>
+                </div>
+                <p class="muted accuracy-note">
+                    Labels come from operator overrides only (weak supervision); these numbers are a <em>floor</em> on accuracy, not an absolute.
+                </p>
+            </div>
             <div class="model-grid">
                 <div class="card model-card" id="card-autoencoder">
                     <div class="card-header">

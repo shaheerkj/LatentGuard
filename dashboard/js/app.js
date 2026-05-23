@@ -971,6 +971,42 @@ async function refreshThreatIntel() {
         : sources.map(u => `<span class="ti-source" title="${escapeHtml(u)}">${escapeHtml(shortenURL(u))}</span>`).join("");
 }
 
+// FR-MON-1: model accuracy panel + topbar pill. Numbers derived from
+// operator overrides via /api/models/accuracy.
+async function refreshAccuracy() {
+    const pill = document.getElementById("accuracy-pill");
+    const a = await fetchJSON("/api/models/accuracy");
+    const setPill = (cls, text, title) => {
+        if (!pill) return;
+        pill.className = cls;
+        pill.textContent = text;
+        if (title) pill.title = title;
+    };
+    if (!a) { setPill("pill pill--danger", "Accuracy: down"); return; }
+    const fmtPct = (v) => v == null ? "-" : (v * 100).toFixed(1) + "%";
+    const $ = (id) => document.getElementById(id);
+    if ($("acc-precision")) $("acc-precision").textContent = fmtPct(a.precision);
+    if ($("acc-recall"))    $("acc-recall").textContent    = fmtPct(a.recall);
+    if ($("acc-f1"))        $("acc-f1").textContent        = a.f1 == null ? "-" : Number(a.f1).toFixed(3);
+    if ($("acc-fpr"))       $("acc-fpr").textContent       = fmtPct(a.false_positive_rate);
+    if ($("acc-confusion")) $("acc-confusion").textContent = `${a.tp} / ${a.tn} / ${a.fp} / ${a.fn}`;
+    if ($("acc-sample"))    $("acc-sample").textContent    = `${a.total} requests over ${a.lookback_hours} h`;
+    const alert = a.alert || {};
+    if (alert.fpr_high) {
+        setPill("pill pill--danger", `FPR ${fmtPct(a.false_positive_rate)} !`,
+            `Above the ${(alert.fpr_threshold * 100).toFixed(1)}% alert threshold`);
+    } else if (alert.recall_low) {
+        setPill("pill pill--warn", `Recall ${fmtPct(a.recall)} !`,
+            `Below the ${(alert.recall_threshold * 100).toFixed(0)}% alert threshold`);
+    } else if (a.tp + a.fp + a.fn === 0) {
+        setPill("pill pill--neutral", "Accuracy: no labels",
+            "No operator overrides in the lookback window -- model accuracy is unmeasured");
+    } else {
+        setPill("pill pill--ok", `F1 ${a.f1 == null ? "-" : Number(a.f1).toFixed(2)}`,
+            `Precision ${fmtPct(a.precision)} / Recall ${fmtPct(a.recall)}`);
+    }
+}
+
 // FR7.4: live training loss chart on the Models tab. Polled by the
 // normal 5 s tick; when the JSONL stops growing for >60s we mark
 // status as "completed" and stop emphasising the chart.
@@ -1048,7 +1084,7 @@ async function tick() {
         refreshHealth(), refreshSafeMode(), refreshMetrics(), refreshTraffic(),
         refreshLogs(), refreshRules(),
         refreshModels(), refreshDecisions(), refreshThreatIntel(), refreshDrift(),
-        refreshBruteForce(), refreshAeLoss(),
+        refreshBruteForce(), refreshAeLoss(), refreshAccuracy(),
     ];
     if (LG_AUTH.canManageUsers()) calls.push(refreshUsers());
     await Promise.all(calls);
