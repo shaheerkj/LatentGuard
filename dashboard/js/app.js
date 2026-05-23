@@ -196,6 +196,60 @@ async function refreshHealth() {
     }
 }
 
+// REL-2: safe-mode banner + force-toggle. Polled on the same tick as
+// everything else. When safe-mode is on, a red banner sits above the
+// main view across every tab so the operator can never miss it.
+async function refreshSafeMode() {
+    const banner = document.getElementById("safe-mode-banner");
+    if (!banner) return;
+    const s = await fetchJSONFrom(PROXY_BASE, "/__safe-mode");
+    if (!s) return;
+    const isActive = !!s.safe_mode;
+    banner.hidden = !isActive;
+    if (!isActive) return;
+    const reasonEl = document.getElementById("safe-mode-reason");
+    const sinceEl  = document.getElementById("safe-mode-since");
+    if (reasonEl) reasonEl.textContent = s.reason || "ML scoring is bypassed.";
+    if (sinceEl) {
+        const since = s.since && s.since !== "0001-01-01T00:00:00Z" ? s.since : null;
+        sinceEl.textContent = since ? `(since ${relativeTime(since)})` : "";
+    }
+    // Force buttons: visible only to rule-operators; the right button to
+    // show depends on whether we're currently forced or in auto state.
+    const onBtn = document.getElementById("safe-mode-force-on-btn");
+    const offBtn = document.getElementById("safe-mode-force-off-btn");
+    const canForce = LG_AUTH.canManageRules();
+    if (onBtn) onBtn.hidden = !canForce || s.forced;
+    if (offBtn) offBtn.hidden = !canForce || !s.forced;
+}
+
+// Idempotent button wiring; runs once on script load.
+const _smForceOn = document.getElementById("safe-mode-force-on-btn");
+if (_smForceOn) {
+    _smForceOn.addEventListener("click", async () => {
+        const reason = prompt("Force safe mode on -- reason for the audit log (e.g. \"ML acting weird, isolating\"):", "");
+        if (reason === null) return;
+        await fetchJSONFrom(PROXY_BASE, "/__safe-mode", {
+            method: "POST",
+            headers: {"Content-Type": "application/json"},
+            body: JSON.stringify({ force: true, reason: reason || "no reason" }),
+        });
+        refreshSafeMode();
+    });
+}
+const _smForceOff = document.getElementById("safe-mode-force-off-btn");
+if (_smForceOff) {
+    _smForceOff.addEventListener("click", async () => {
+        if (!confirm("Clear forced safe-mode? The heartbeat will resume control -- if ML is still down, safe-mode stays on; if it's healthy, it'll lift on the next probe.")) return;
+        await fetchJSONFrom(PROXY_BASE, "/__safe-mode", {
+            method: "POST",
+            headers: {"Content-Type": "application/json"},
+            body: JSON.stringify({ force: false, reason: "operator cleared force" }),
+        });
+        refreshSafeMode();
+    });
+}
+
 async function refreshMetrics() {
     const m = await fetchJSON("/api/metrics");
     if (!m) return;
@@ -991,7 +1045,8 @@ async function refreshDrift() {
 
 async function tick() {
     const calls = [
-        refreshHealth(), refreshMetrics(), refreshTraffic(), refreshLogs(), refreshRules(),
+        refreshHealth(), refreshSafeMode(), refreshMetrics(), refreshTraffic(),
+        refreshLogs(), refreshRules(),
         refreshModels(), refreshDecisions(), refreshThreatIntel(), refreshDrift(),
         refreshBruteForce(), refreshAeLoss(),
     ];

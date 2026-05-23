@@ -177,19 +177,60 @@ func main() {
 		_, _ = w.Write([]byte("ok"))
 	})
 
-	safeModeHandler := http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+	// GET returns the full state struct (safe_mode, forced, reason, since)
+	// so the dashboard can render a banner with the right messaging.
+	// POST {"force": true|false, "reason": "..."} flips operator-forced
+	// safe mode -- admin or security-operator only. Reason is logged into
+	// the SafeMode state so the next GET tells the operator who turned
+	// it on and when.
+	safeModeGetHandler := http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
 		corsHeaders(w)
 		w.Header().Set("Content-Type", "application/json")
-		if safe.Get() {
-			_, _ = w.Write([]byte(`{"safe_mode":true}`))
+		_ = json.NewEncoder(w).Encode(safe.State())
+	})
+	safeModePostHandler := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		corsHeaders(w)
+		w.Header().Set("Content-Type", "application/json")
+		var payload struct {
+			Force  bool   `json:"force"`
+			Reason string `json:"reason"`
+		}
+		if err := json.NewDecoder(r.Body).Decode(&payload); err != nil {
+			http.Error(w, `{"error":"bad json"}`, http.StatusBadRequest)
+			return
+		}
+		reason := payload.Reason
+		if reason == "" {
+			if payload.Force {
+				reason = "operator: forced on (no reason)"
+			} else {
+				reason = "operator: cleared force; heartbeat resumes"
+			}
 		} else {
-			_, _ = w.Write([]byte(`{"safe_mode":false}`))
+			reason = "operator: " + reason
+		}
+		safe.SetForced(payload.Force, reason)
+		log.Printf("safe-mode: forced=%v reason=%q", payload.Force, reason)
+		_ = json.NewEncoder(w).Encode(safe.State())
+	})
+	// Method-dispatch wrapper so we can use a single mux entry yet apply
+	// different role gates per verb.
+	safeModeMux := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch r.Method {
+		case http.MethodGet:
+			verifier.MiddlewareRoles(safeModeGetHandler,
+				"admin", "security-operator", "ml-engineer", "auditor").ServeHTTP(w, r)
+		case http.MethodPost:
+			verifier.MiddlewareRoles(safeModePostHandler,
+				"admin", "security-operator").ServeHTTP(w, r)
+		case http.MethodOptions:
+			corsHeaders(w)
+			w.WriteHeader(http.StatusNoContent)
+		default:
+			http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
 		}
 	})
-	// /__safe-mode is a read-only status view; any authenticated role
-	// (admin, security-operator, ml-engineer, auditor) can poll it.
-	mux.Handle("/__safe-mode", verifier.MiddlewareRoles(safeModeHandler,
-		"admin", "security-operator", "ml-engineer", "auditor"))
+	mux.Handle("/__safe-mode", safeModeMux)
 
 	threatintelHandler := http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
 		corsHeaders(w)

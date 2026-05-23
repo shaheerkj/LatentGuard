@@ -1302,3 +1302,21 @@ tr:hover .method-tag {
     font-size: 11px;
     margin-left: auto;
 }
+
+/* ---------- REL-2 safe-mode banner ---------- */
+.safe-mode-banner {
+    background: linear-gradient(90deg, rgba(220, 38, 38, 0.18), rgba(220, 38, 38, 0.10));
+    border-bottom: 1px solid rgba(220, 38, 38, 0.5);
+    padding: 10px 24px;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 16px;
+    font-size: 13px;
+    color: #FECACA;
+}
+.safe-mode-banner[hidden] { display: none; }
+.safe-mode-banner-body { display: flex; gap: 10px; align-items: center; flex-wrap: wrap; }
+.safe-mode-banner-body strong { color: #FEE2E2; }
+.safe-mode-since { font-size: 11.5px; }
+.safe-mode-banner-actions { display: flex; gap: 8px; }

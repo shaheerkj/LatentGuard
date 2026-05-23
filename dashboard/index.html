@@ -37,6 +37,21 @@
         </div>
     </header>
 
+    <!-- Safe-mode banner -- rendered globally across every tab when the proxy
+         is operating in ModSecurity-only mode. JS hides this on page load
+         and reveals it on the first /__safe-mode response. -->
+    <div class="safe-mode-banner" id="safe-mode-banner" hidden>
+        <div class="safe-mode-banner-body">
+            <strong>Safe mode active.</strong>
+            <span id="safe-mode-reason">ML scoring is bypassed; only Coraza rules + threat intel are enforcing.</span>
+            <span class="safe-mode-since muted" id="safe-mode-since"></span>
+        </div>
+        <div class="safe-mode-banner-actions">
+            <button class="btn btn-sm" id="safe-mode-force-on-btn" type="button" hidden>Force on</button>
+            <button class="btn btn-sm" id="safe-mode-force-off-btn" type="button" hidden>Clear force</button>
+        </div>
+    </div>
+
     <main class="main">
         <!-- ============================ DASHBOARD =========================== -->
         <section id="view-dashboard" class="view view--active">

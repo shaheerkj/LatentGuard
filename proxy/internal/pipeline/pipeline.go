@@ -26,11 +26,74 @@ import (
 
 const maxBodyBytes = 1 << 20 // 1 MiB cap to keep memory bounded
 
-// SafeMode is the goroutine-safe flag flipped by the heartbeat loop.
-type SafeMode struct{ v atomic.Bool }
+// SafeMode is the goroutine-safe flag flipped by the heartbeat loop AND
+// (optionally) forced on by an operator for incident response. Forced
+// state survives heartbeat success -- the operator's force-on wins until
+// they explicitly force-off again. Auto state flips with ML health.
+type SafeMode struct {
+	v        atomic.Bool   // active flag
+	forced   atomic.Bool   // operator-set; heartbeat ignores when true
+	reason   atomic.Value  // string -- why we're in safe mode
+	sinceNS  atomic.Int64  // unix-nanos when we entered the current state
+}
 
-func (s *SafeMode) Get() bool  { return s.v.Load() }
-func (s *SafeMode) Set(b bool) { s.v.Store(b) }
+func (s *SafeMode) Get() bool { return s.v.Load() }
+
+// Set is the legacy boolean-only entrypoint -- used by tests that don't
+// care about reason/since. Equivalent to SetAuto.
+func (s *SafeMode) Set(b bool) { s.SetAuto(b, "manual flip") }
+
+// SetAuto is the heartbeat path: only takes effect when not forced.
+func (s *SafeMode) SetAuto(b bool, reason string) {
+	if s.forced.Load() {
+		return
+	}
+	s.setRaw(b, reason)
+}
+
+// SetForced is the operator path: takes effect unconditionally and
+// pins the state until another SetForced call. b=false also clears
+// the forced bit, returning control to the heartbeat.
+func (s *SafeMode) SetForced(b bool, reason string) {
+	s.forced.Store(b)
+	s.setRaw(b, reason)
+}
+
+func (s *SafeMode) setRaw(b bool, reason string) {
+	prev := s.v.Swap(b)
+	if prev != b {
+		s.sinceNS.Store(time.Now().UnixNano())
+	}
+	if reason == "" {
+		reason = "auto"
+	}
+	s.reason.Store(reason)
+}
+
+// State is a JSON-friendly snapshot for the /__safe-mode endpoint.
+type SafeModeState struct {
+	SafeMode bool      `json:"safe_mode"`
+	Forced   bool      `json:"forced"`
+	Reason   string    `json:"reason"`
+	Since    time.Time `json:"since"`
+}
+
+func (s *SafeMode) State() SafeModeState {
+	r, _ := s.reason.Load().(string)
+	if r == "" && s.v.Load() {
+		r = "auto"
+	}
+	since := time.Time{}
+	if ns := s.sinceNS.Load(); ns > 0 {
+		since = time.Unix(0, ns)
+	}
+	return SafeModeState{
+		SafeMode: s.v.Load(),
+		Forced:   s.forced.Load(),
+		Reason:   r,
+		Since:    since,
+	}
+}
 
 // Handler builds the proxy's main HTTP handler.
 //
@@ -157,12 +220,15 @@ func Heartbeat(mlc *client.MLClient, safe *SafeMode, interval time.Duration) {
 		ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
 		ok := mlc.Healthy(ctx)
 		cancel()
-		if !ok && !safe.Get() {
-			log.Println("heartbeat: ML unreachable, entering safe mode")
-			safe.Set(true)
-		} else if ok && safe.Get() {
-			log.Println("heartbeat: ML healthy, leaving safe mode")
-			safe.Set(false)
+		// SetAuto is a no-op when an operator has force-pinned the flag --
+		// the heartbeat must not undo a manual incident-response action.
+		st := safe.State()
+		if !ok && !st.SafeMode {
+			log.Println("heartbeat: ML unreachable, entering safe mode (auto)")
+			safe.SetAuto(true, "auto: ML heartbeat failed")
+		} else if ok && st.SafeMode && !st.Forced {
+			log.Println("heartbeat: ML healthy, leaving safe mode (auto)")
+			safe.SetAuto(false, "auto: ML heartbeat recovered")
 		}
 	}
 }
