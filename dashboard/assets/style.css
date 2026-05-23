@@ -1162,3 +1162,13 @@ tr:hover .method-tag {
 }
 .history-list li { padding: 3px 0; border-bottom: 1px dashed var(--border); }
 .history-list li:last-child { border-bottom: none; }
+
+/* ---------- drawer copy-as-curl ---------- */
+.drawer-actions { display: flex; align-items: center; gap: 12px; padding-top: 0; }
+.copy-feedback {
+    color: #34D399;
+    font-size: 12px;
+    font-weight: 600;
+    text-transform: uppercase;
+    letter-spacing: 0.4px;
+}

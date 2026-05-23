@@ -363,7 +363,12 @@ async function openRequestDrawer(requestId) {
         `<div class="kv"><dt>${escapeHtml(k)}</dt><dd>${escapeHtml(v)}</dd></div>`
     ).join("") || `<p class="muted">no headers captured</p>`;
 
+    const curl = buildCurl(r);
     els.drawer.body.innerHTML = `
+        <section class="drawer-section drawer-actions">
+            <button class="btn btn-sm" id="copy-curl-btn" type="button" title="Copy a shell-pasteable curl that reproduces this request">Copy as curl</button>
+            <span class="copy-feedback" id="copy-curl-feedback" hidden>copied</span>
+        </section>
         <section class="drawer-section">
             <h3>Verdict</h3>
             <div class="drawer-grid">
@@ -405,6 +410,49 @@ async function openRequestDrawer(requestId) {
             <h3>Headers</h3>
             <div class="drawer-grid drawer-grid--headers">${headers}</div>
         </section>`;
+
+    const copyBtn = document.getElementById("copy-curl-btn");
+    const copyFb = document.getElementById("copy-curl-feedback");
+    if (copyBtn) {
+        copyBtn.addEventListener("click", async () => {
+            try {
+                await navigator.clipboard.writeText(curl);
+                if (copyFb) {
+                    copyFb.hidden = false;
+                    setTimeout(() => { copyFb.hidden = true; }, 1500);
+                }
+            } catch (err) {
+                console.warn("clipboard write failed", err);
+                alert("Copy failed. The curl text:\n\n" + curl);
+            }
+        });
+    }
+}
+
+// Reconstruct a shell-pasteable curl from an audit record. Single quotes
+// inside strings are POSIX-escaped via close-quote + escaped-quote + reopen
+// ('\''), which is the only portable way to embed a single quote in a
+// single-quoted bash string. Uses PROXY_BASE so the curl hits the WAF, not
+// the upstream directly -- which is the whole point of reproducing the
+// request in the first place.
+function buildCurl(r) {
+    const shellQuote = (s) => `'` + String(s).replace(/'/g, `'\\''`) + `'`;
+    const parts = ["curl", "-i"];
+    const method = (r.method || "GET").toUpperCase();
+    if (method !== "GET") {
+        parts.push("-X", method);
+    }
+    const skipHeaders = new Set(["host", "content-length", "connection"]);
+    for (const [k, v] of Object.entries(r.headers || {})) {
+        if (skipHeaders.has(k.toLowerCase())) continue;
+        parts.push("-H", shellQuote(`${k}: ${v}`));
+    }
+    if (r.canonical_body) {
+        parts.push("--data-raw", shellQuote(r.canonical_body));
+    }
+    const url = `${PROXY_BASE}${r.path || "/"}`;
+    parts.push(shellQuote(url));
+    return parts.join(" ");
 }
 
 // ---------------------------- M8/M9/M10 rules tab -------------------------
