@@ -116,6 +116,27 @@ def main() -> int:
     model.summary(print_fn=lambda s: print("  " + s))
 
     es = keras.callbacks.EarlyStopping(monitor="val_loss", patience=5, restore_best_weights=True)
+
+    # FR7.4: persist per-epoch loss to a JSONL file so the dashboard
+    # can poll it during training and render a live loss curve.
+    # Truncated on each run so a fresh retrain starts with a clean
+    # series and there's no risk of stale rows leaking into the chart.
+    MODELS_DIR.mkdir(parents=True, exist_ok=True)
+    progress_path = MODELS_DIR / "autoencoder.progress.jsonl"
+    progress_path.write_text("")  # truncate
+
+    class _LossLogger(keras.callbacks.Callback):
+        def on_epoch_end(self, epoch, logs=None):
+            logs = logs or {}
+            row = {
+                "epoch": int(epoch) + 1,
+                "loss": float(logs.get("loss", 0.0)),
+                "val_loss": float(logs.get("val_loss", 0.0)),
+                "at": datetime.now(timezone.utc).isoformat(),
+            }
+            with progress_path.open("a") as fp:
+                fp.write(json.dumps(row) + "\n")
+
     model.fit(
         Xs, Xs,
         epochs=args.epochs,
@@ -123,7 +144,7 @@ def main() -> int:
         validation_split=0.1,
         shuffle=True,
         verbose=2,
-        callbacks=[es],
+        callbacks=[es, _LossLogger()],
     )
 
     recon = model.predict(Xs, batch_size=512, verbose=0)

@@ -867,6 +867,54 @@ async function refreshThreatIntel() {
         : sources.map(u => `<span class="ti-source" title="${escapeHtml(u)}">${escapeHtml(shortenURL(u))}</span>`).join("");
 }
 
+// FR7.4: live training loss chart on the Models tab. Polled by the
+// normal 5 s tick; when the JSONL stops growing for >60s we mark
+// status as "completed" and stop emphasising the chart.
+let aeLossChart = null;
+async function refreshAeLoss() {
+    const status = document.getElementById("ae-loss-status");
+    const canvas = document.getElementById("chart-ae-loss");
+    if (!canvas) return;
+    const data = await fetchJSON("/api/models/training-progress?model=autoencoder&tail=200");
+    if (!data) return;
+    const rows = data.rows || [];
+    if (status) {
+        status.textContent = rows.length === 0
+            ? "no recent run"
+            : (data.is_active ? `training... epoch ${rows[rows.length - 1].epoch}` : `last run: ${rows.length} epochs`);
+        status.classList.toggle("loss-live", !!data.is_active);
+    }
+    if (rows.length === 0) return;
+    const labels = rows.map(r => String(r.epoch));
+    const lossSeries = rows.map(r => r.loss);
+    const valSeries = rows.map(r => r.val_loss);
+    if (!aeLossChart) {
+        aeLossChart = new Chart(canvas, {
+            type: "line",
+            data: {
+                labels,
+                datasets: [
+                    { label: "loss", data: lossSeries, borderColor: "#10B981", tension: 0.2, pointRadius: 0, fill: false },
+                    { label: "val_loss", data: valSeries, borderColor: "#F59E0B", tension: 0.2, pointRadius: 0, fill: false },
+                ],
+            },
+            options: {
+                responsive: true, maintainAspectRatio: false,
+                plugins: { legend: { labels: { color: "#9CA3AF", boxWidth: 12 } } },
+                scales: {
+                    x: { ticks: { color: "#9CA3AF" }, grid: { color: "#232732" } },
+                    y: { ticks: { color: "#9CA3AF" }, grid: { color: "#232732" } },
+                },
+            },
+        });
+    } else {
+        aeLossChart.data.labels = labels;
+        aeLossChart.data.datasets[0].data = lossSeries;
+        aeLossChart.data.datasets[1].data = valSeries;
+        aeLossChart.update("none");
+    }
+}
+
 async function refreshDrift() {
     const pill = document.getElementById("drift-pill");
     if (!pill) return;
@@ -895,7 +943,7 @@ async function tick() {
     const calls = [
         refreshHealth(), refreshMetrics(), refreshTraffic(), refreshLogs(), refreshRules(),
         refreshModels(), refreshDecisions(), refreshThreatIntel(), refreshDrift(),
-        refreshBruteForce(),
+        refreshBruteForce(), refreshAeLoss(),
     ];
     if (LG_AUTH.canManageUsers()) calls.push(refreshUsers());
     await Promise.all(calls);

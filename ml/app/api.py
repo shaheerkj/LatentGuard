@@ -321,6 +321,43 @@ def _run_training(module: str) -> None:
             logger.warning("retrain: reload failed: %s", exc)
 
 
+@router.get("/models/training-progress")
+def models_training_progress(
+    model: Literal["autoencoder", "hdbscan"] = Query("autoencoder"),
+    tail: int = Query(default=200, ge=1, le=2000),
+) -> dict[str, Any]:
+    """FR7.4: stream the per-epoch loss JSONL the trainer is writing.
+
+    Returns the last `tail` rows so the dashboard can render an
+    incrementally-growing Chart.js line during a live retrain. When no
+    training has run since boot the file is absent -> we return empty.
+    `is_active` is a heuristic: file was written to within the last 60s.
+    """
+    name = f"{model}.progress.jsonl"
+    path = ML_DIR / "models" / name
+    if not path.exists():
+        return {"rows": [], "is_active": False, "file": name}
+    import time as _t
+    mtime = path.stat().st_mtime
+    is_active = (_t.time() - mtime) < 60
+    rows: list[dict[str, Any]] = []
+    try:
+        with path.open("r") as fp:
+            lines = fp.readlines()[-tail:]
+        import json as _j
+        for line in lines:
+            line = line.strip()
+            if not line:
+                continue
+            try:
+                rows.append(_j.loads(line))
+            except _j.JSONDecodeError:
+                continue
+    except OSError as exc:
+        raise HTTPException(status_code=503, detail=f"read failed: {exc}") from exc
+    return {"rows": rows, "is_active": is_active, "file": name}
+
+
 @router.post(
     "/models/retrain",
     dependencies=[Depends(require_role(*Role.MODEL_OPERATORS))],

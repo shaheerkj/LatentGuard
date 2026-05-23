@@ -157,6 +157,13 @@
                         <button class="btn btn-primary" data-retrain="autoencoder">Retrain</button>
                         <span class="model-action-status" id="ae-status"></span>
                     </div>
+                    <div class="loss-chart-wrap">
+                        <div class="loss-chart-header">
+                            <span>Training loss</span>
+                            <span class="muted" id="ae-loss-status">no recent run</span>
+                        </div>
+                        <canvas id="chart-ae-loss" height="120"></canvas>
+                    </div>
                 </div>
 
                 <div class="card model-card" id="card-hdbscan">
