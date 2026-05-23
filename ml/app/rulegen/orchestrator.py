@@ -152,24 +152,37 @@ def _stub_render(items: list[str], rule_id: int) -> tuple[str, str]:
 
 
 def _render(items: list[str], rule_id: int, provider: str) -> tuple[str, str, str]:
-    """Returns (rule_text, message, provider_used)."""
-    if provider == "openai" and not os.environ.get("OPENAI_API_KEY"):
+    """Returns (rule_text, message, provider_used).
+
+    Pluggable provider dispatch. Each external provider returns either
+    (rule_text, msg) on success or None on failure -- which always falls
+    back to the stub renderer so the pipeline never breaks just because
+    an API call timed out or the key expired. The orchestrator records
+    the provider that actually produced the rule so the dashboard can
+    surface "drafted by gemini" vs "drafted by stub" per candidate.
+    """
+    if provider == "gemini":
+        from . import llm_gemini
+        if not llm_gemini.is_available():
+            logger.info("orchestrator: GEMINI_API_KEY missing, falling back to stub")
+        else:
+            out = llm_gemini.render(items, rule_id)
+            if out is not None:
+                rule_text, msg = out
+                return rule_text, msg, "gemini"
+            logger.info("orchestrator: gemini render failed, falling back to stub")
+    elif provider == "openai" and not os.environ.get("OPENAI_API_KEY"):
         logger.info("orchestrator: OPENAI_API_KEY missing, falling back to stub")
-        provider = "stub"
-    if provider == "anthropic" and not os.environ.get("ANTHROPIC_API_KEY"):
+    elif provider == "anthropic" and not os.environ.get("ANTHROPIC_API_KEY"):
         logger.info("orchestrator: ANTHROPIC_API_KEY missing, falling back to stub")
-        provider = "stub"
-    if provider != "stub":
-        # Real LLM hooks deferred -- when implemented they should still
-        # return (rule_text, msg) in the same shape.
+    elif provider not in ("stub", "gemini"):
         logger.warning(
-            "orchestrator: provider %r requested but not implemented yet; "
-            "using stub. Wire ml/app/rulegen/llm_*.py to enable.",
+            "orchestrator: provider %r not implemented (openai/anthropic stubs "
+            "available -- wire ml/app/rulegen/llm_*.py to enable); using stub",
             provider,
         )
-        provider = "stub"
     rule_text, msg = _stub_render(items, rule_id)
-    return rule_text, msg, provider
+    return rule_text, msg, "stub"
 
 
 def generate_candidates(
