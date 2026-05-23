@@ -32,7 +32,7 @@ from .users import Role
 
 logger = logging.getLogger("latentguard.ml.api")
 
-router = APIRouter(prefix="/api", tags=["dashboard"])
+router = APIRouter(prefix="/api")
 
 ML_DIR = Path(__file__).resolve().parents[1]
 
@@ -59,7 +59,7 @@ def _serialize(doc: dict[str, Any]) -> dict[str, Any]:
     return out
 
 
-@router.get("/metrics")
+@router.get("/metrics", tags=["dashboard"], summary="Top-line KPI counters (total / blocked / block rate / p95 latency)")
 def get_metrics() -> dict[str, Any]:
     try:
         col = requests_collection()
@@ -87,7 +87,7 @@ def get_metrics() -> dict[str, Any]:
         raise HTTPException(status_code=503, detail="storage unavailable") from exc
 
 
-@router.get("/logs")
+@router.get("/logs", tags=["dashboard"], summary="Paginated, filterable audit log slice")
 def get_logs(
     limit: int = Query(default=50, ge=1, le=500),
     offset: int = Query(default=0, ge=0),
@@ -144,6 +144,8 @@ class OverridePayload(BaseModel):
 
 @router.post(
     "/logs/{request_id}/override",
+    tags=["dashboard"],
+    summary="FR4.5 decision override: flag a past verdict as wrong with a reason. Annotation only -- live engine state unchanged.",
     dependencies=[Depends(require_role(*Role.RULE_OPERATORS))],
 )
 def post_log_override(
@@ -185,7 +187,7 @@ def _serialize_override(o: dict[str, Any]) -> dict[str, Any]:
     return out
 
 
-@router.get("/logs/{request_id}")
+@router.get("/logs/{request_id}", tags=["dashboard"], summary="Single audit record with full canonicals, features, rule hits, reasons, overrides")
 def get_log_detail(request_id: str) -> dict[str, Any]:
     """Single full audit record by request_id. Returns 404 if missing."""
     try:
@@ -199,7 +201,7 @@ def get_log_detail(request_id: str) -> dict[str, Any]:
         raise HTTPException(status_code=503, detail="storage unavailable") from exc
 
 
-@router.get("/rules")
+@router.get("/rules", tags=["rules"], summary="Deprecated: use /rules/candidates", deprecated=True)
 def get_rules(status: str | None = Query(default=None)) -> list[dict[str, Any]]:
     try:
         col = rules_collection()
@@ -212,7 +214,7 @@ def get_rules(status: str | None = Query(default=None)) -> list[dict[str, Any]]:
         raise HTTPException(status_code=503, detail="storage unavailable") from exc
 
 
-@router.get("/timeseries")
+@router.get("/timeseries", tags=["dashboard"], summary="Per-minute allow/block counts for the traffic chart")
 def get_timeseries(minutes: int = Query(default=60, ge=5, le=1440)) -> dict[str, Any]:
     """Per-minute request counts split by final_action for the dashboard chart."""
     try:
@@ -269,13 +271,15 @@ def _config_to_payload(cfg: ConsensusConfig) -> dict[str, Any]:
     }
 
 
-@router.get("/consensus/config")
+@router.get("/consensus/config", tags=["models"], summary="Current consensus engine configuration (mode + weights + thresholds)")
 def consensus_config_get() -> dict[str, Any]:
     return _config_to_payload(get_config())
 
 
 @router.put(
     "/consensus/config",
+    tags=["models"],
+    summary="Update the consensus engine (admin / ml-engineer only). Persisted to Mongo, read per scoring decision.",
     dependencies=[Depends(require_role(*Role.MODEL_OPERATORS))],
 )
 def consensus_config_put(payload: ConsensusConfigPayload) -> dict[str, Any]:
@@ -296,7 +300,7 @@ def consensus_config_put(payload: ConsensusConfigPayload) -> dict[str, Any]:
     return _config_to_payload(cfg)
 
 
-@router.get("/models/status")
+@router.get("/models/status", tags=["models"], summary="AE + HDBSCAN load status, training metadata, thresholds")
 def models_status() -> dict[str, Any]:
     return get_store().status()
 
@@ -322,7 +326,7 @@ def _run_training(module: str) -> None:
             logger.warning("retrain: reload failed: %s", exc)
 
 
-@router.get("/models/training-progress")
+@router.get("/models/training-progress", tags=["models"], summary="FR7.4 live training loss JSONL tail (one row per epoch)")
 def models_training_progress(
     model: Literal["autoencoder", "hdbscan"] = Query("autoencoder"),
     tail: int = Query(default=200, ge=1, le=2000),
@@ -361,6 +365,8 @@ def models_training_progress(
 
 @router.post(
     "/models/retrain",
+    tags=["models"],
+    summary="Trigger an asynchronous retrain (admin / ml-engineer only). Watch /api/models/training-progress for live loss curve.",
     dependencies=[Depends(require_role(*Role.MODEL_OPERATORS))],
 )
 def models_retrain(
@@ -390,6 +396,8 @@ class MineRequest(BaseModel):
 
 @router.post(
     "/mining/run",
+    tags=["mining"],
+    summary="Run FP-Growth over the audit log; optionally emit candidate rules from the resulting patterns",
     dependencies=[Depends(require_role(*Role.RULE_OPERATORS))],
 )
 def mining_run(req: MineRequest) -> dict[str, Any]:
@@ -424,7 +432,7 @@ def _rule_to_payload(doc: dict[str, Any]) -> dict[str, Any]:
     return _serialize(doc)
 
 
-@router.get("/rules/candidates")
+@router.get("/rules/candidates", tags=["rules"], summary="List candidate rules with optional status filter")
 def rules_candidates_list(
     status: str | None = Query(default=None),
     limit: int = Query(default=200, ge=1, le=1000),
@@ -456,6 +464,8 @@ class TransitionPayload(BaseModel):
 
 @router.post(
     "/rules/candidates/{rule_id}/approve",
+    tags=["rules"],
+    summary="Approve a candidate rule. Automatically promotes to live + writes to disk + hot-reloads Coraza.",
     dependencies=[Depends(require_role(*Role.RULE_OPERATORS))],
 )
 def rules_candidates_approve(
@@ -474,6 +484,8 @@ def rules_candidates_approve(
 
 @router.post(
     "/rules/candidates/{rule_id}/reject",
+    tags=["rules"],
+    summary="Reject a candidate rule with optional note. Stays in the queue for review.",
     dependencies=[Depends(require_role(*Role.RULE_OPERATORS))],
 )
 def rules_candidates_reject(
@@ -491,6 +503,8 @@ def rules_candidates_reject(
 
 @router.post(
     "/rules/candidates/{rule_id}/expire",
+    tags=["rules"],
+    summary="Expire a live rule. Removes from disk + reloads Coraza.",
     dependencies=[Depends(require_role(*Role.RULE_OPERATORS))],
 )
 def rules_candidates_expire(
@@ -515,6 +529,8 @@ class EditPayload(BaseModel):
 
 @router.put(
     "/rules/candidates/{rule_id}",
+    tags=["rules"],
+    summary="Edit rule text / message / notes. Sends the rule back to pending so the edit goes through approval again.",
     dependencies=[Depends(require_role(*Role.RULE_OPERATORS))],
 )
 def rules_candidates_edit(
@@ -543,6 +559,8 @@ class PreviewRequest(BaseModel):
 
 @router.post(
     "/rules/candidates/{rule_id}/preview",
+    tags=["rules"],
+    summary="FR5.5 sandbox-test: replay this candidate's pattern against the audit log to preview matches before approving",
     dependencies=[Depends(require_role(*Role.RULE_OPERATORS))],
 )
 def rules_candidates_preview(
@@ -640,6 +658,8 @@ def rules_candidates_preview(
 
 @router.delete(
     "/rules/candidates/{rule_id}",
+    tags=["rules"],
+    summary="Hard-delete a candidate rule. Prefer Expire for live rules so the audit trail survives.",
     dependencies=[Depends(require_role(*Role.RULE_OPERATORS))],
 )
 def rules_candidates_delete(rule_id: int) -> dict[str, Any]:
@@ -667,7 +687,7 @@ def _request_actor(request: Request) -> str:
 # ---------------------------------------------------------------------------
 
 
-@router.get("/siem/status")
+@router.get("/siem/status", tags=["siem"], summary="SI-6 CEF/Syslog forwarder status (enabled / events / errors)")
 def siem_status() -> dict[str, Any]:
     """SI-6: CEF/Syslog forwarder status -- enabled flags, last export,
     error counters. No-auth-role-gating beyond require_auth (operational
@@ -676,7 +696,7 @@ def siem_status() -> dict[str, Any]:
     return siem.status()
 
 
-@router.get("/models/accuracy")
+@router.get("/models/accuracy", tags=["models"], summary="FR-MON-1 model accuracy from operator-labelled overrides (precision/recall/F1/FPR + alert flags)")
 def models_accuracy(
     lookback_hours: int = Query(default=168, ge=1, le=24 * 60),
     fpr_alert: float = Query(default=0.05, ge=0.0, le=1.0),
@@ -762,7 +782,7 @@ def models_accuracy(
         raise HTTPException(status_code=503, detail=f"storage error: {exc}") from exc
 
 
-@router.get("/models/drift")
+@router.get("/models/drift", tags=["models"], summary="M11 anomaly-score drift z-score over a rolling window vs baseline")
 def models_drift(
     window_min: int = Query(default=60, ge=5, le=1440),
     baseline_min: int = Query(default=24 * 60, ge=60, le=14 * 24 * 60),

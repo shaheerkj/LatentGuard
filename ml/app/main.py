@@ -20,8 +20,47 @@ logging.basicConfig(level=os.environ.get("LOG_LEVEL", "INFO"))
 
 app = FastAPI(
     title="LatentGuard ML",
-    version="0.2.0",
-    description="Scoring service for the LatentGuard dual-layer WAF.",
+    version="0.3.0",
+    summary="Scoring + mining + rule-synthesis service for the LatentGuard adaptive WAF",
+    description=(
+        "Backend for the LatentGuard operator dashboard and the Go reverse-"
+        "proxy that fronts the protected web app.\n\n"
+        "## Layers\n"
+        "- **M4 Autoencoder** + **M5 HDBSCAN** + **M6 Consensus** score every "
+        "request the proxy forwards on `/score`.\n"
+        "- **M7 Audit log** lives in MongoDB and is the source of truth for "
+        "everything below.\n"
+        "- **M8 FP-Growth miner** + **M9 rule-synthesis orchestrator** turn "
+        "blocked-request patterns into draft Coraza rules; **M10 HITL** lets "
+        "an operator approve them, after which they are hot-loaded into the "
+        "live ruleset.\n"
+        "- **M11 drift watch** flags when AE anomaly scores drift from "
+        "baseline.\n\n"
+        "## Auth\n"
+        "Every `/api/*` route requires a `Bearer <jwt>` header. Obtain one "
+        "from `POST /api/auth/login`. Role-gated routes return **403** "
+        "(not 401) when the token is valid but the role is wrong, so the "
+        "dashboard can show 'no permission' without bouncing to login.\n"
+        "Roles: `admin`, `security-operator`, `ml-engineer`, `auditor`.\n\n"
+        "## Conventions\n"
+        "- Timestamps: ISO-8601 UTC.\n"
+        "- Pagination: `limit` + `offset` with a `total` count.\n"
+        "- Errors: `{ detail: str }` body with the HTTP status carrying "
+        "the verdict.\n"
+    ),
+    contact={
+        "name": "Syed Shaheer Khalid",
+        "email": "shaheerkjaffer@gmail.com",
+    },
+    license_info={"name": "Academic FYP -- see LICENSE"},
+    openapi_tags=[
+        {"name": "auth", "description": "Login, MFA, user management, brute-force alerts"},
+        {"name": "dashboard", "description": "Read-only views for the operator console"},
+        {"name": "mining", "description": "FP-Growth pattern mining (M8)"},
+        {"name": "rules", "description": "Candidate-rule lifecycle (M9 + M10)"},
+        {"name": "models", "description": "Autoencoder / HDBSCAN status, retraining, accuracy, drift"},
+        {"name": "siem", "description": "CEF/Syslog forwarder status"},
+    ],
 )
 
 app.add_middleware(
