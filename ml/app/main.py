@@ -52,6 +52,16 @@ def _warmup() -> None:
     except Exception as exc:
         logger.warning("model warmup failed (continuing in degraded mode): %s", exc)
 
+    # RBAC bootstrap: seed the first admin from env if the users
+    # collection is empty. Idempotent -- safe across restarts. Done at
+    # startup so first /api/auth/login does not race with another worker
+    # also trying to bootstrap.
+    try:
+        from .users import ensure_bootstrap_admin
+        ensure_bootstrap_admin()
+    except Exception as exc:
+        logger.warning("users bootstrap deferred: %s", exc)
+
 
 @app.get("/healthz", response_model=HealthResponse)
 def healthz() -> HealthResponse:

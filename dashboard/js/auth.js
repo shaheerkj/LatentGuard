@@ -6,17 +6,32 @@ const LG_AUTH = (function () {
     const TOKEN_KEY = "lg.jwt";
     const EXP_KEY = "lg.jwt.exp";
     const USER_KEY = "lg.jwt.user";
+    const ROLE_KEY = "lg.jwt.role";
+
+    // Role matrix kept in lock-step with ml/app/users.py Role.* groups.
+    // Mirroring it client-side is for *UX* (hide buttons the user can't
+    // press) -- the backend still enforces. Never trust this for security.
+    const ROLES = {
+        ADMIN: "admin",
+        SECURITY_OPERATOR: "security-operator",
+        ML_ENGINEER: "ml-engineer",
+        AUDITOR: "auditor",
+    };
+    const RULE_OPERATORS = new Set([ROLES.ADMIN, ROLES.SECURITY_OPERATOR]);
+    const MODEL_OPERATORS = new Set([ROLES.ADMIN, ROLES.ML_ENGINEER]);
+    const ADMIN_ONLY = new Set([ROLES.ADMIN]);
 
     // Where to reach the ML auth endpoint. Mirrors the API_BASE convention in
     // app.js so a dashboard served from a non-default origin can override via
     // window.LATENTGUARD_API.
     const API_BASE = window.LATENTGUARD_API || "http://localhost:8000";
 
-    function save(token, exp, user) {
+    function save(token, exp, user, role) {
         try {
             localStorage.setItem(TOKEN_KEY, token);
             localStorage.setItem(EXP_KEY, String(exp || 0));
             if (user) localStorage.setItem(USER_KEY, user);
+            if (role) localStorage.setItem(ROLE_KEY, role);
         } catch { /* private mode etc -- ignore */ }
     }
     function clear() {
@@ -24,6 +39,7 @@ const LG_AUTH = (function () {
             localStorage.removeItem(TOKEN_KEY);
             localStorage.removeItem(EXP_KEY);
             localStorage.removeItem(USER_KEY);
+            localStorage.removeItem(ROLE_KEY);
         } catch { /* */ }
     }
     function token() {
@@ -32,6 +48,16 @@ const LG_AUTH = (function () {
     function user() {
         try { return localStorage.getItem(USER_KEY) || ""; } catch { return ""; }
     }
+    function role() {
+        try { return localStorage.getItem(ROLE_KEY) || ""; } catch { return ""; }
+    }
+    function hasRole(...allowed) {
+        const r = role();
+        return allowed.some(x => x === r);
+    }
+    function canManageRules()  { return RULE_OPERATORS.has(role()); }
+    function canManageModels() { return MODEL_OPERATORS.has(role()); }
+    function canManageUsers()  { return ADMIN_ONLY.has(role()); }
     function expired() {
         try {
             const exp = Number(localStorage.getItem(EXP_KEY) || "0");
@@ -90,7 +116,7 @@ const LG_AUTH = (function () {
             throw new Error(`HTTP ${res.status}: ${body.slice(0, 200) || "login failed"}`);
         }
         const data = await res.json();
-        save(data.token, data.expires_at, data.user);
+        save(data.token, data.expires_at, data.user, data.role);
         return data;
     }
 
@@ -99,5 +125,10 @@ const LG_AUTH = (function () {
         redirectToLogin();
     }
 
-    return { API_BASE, token, user, expired, requireAuth, authFetch, login, logout };
+    return {
+        API_BASE, token, user, role, expired, hasRole,
+        canManageRules, canManageModels, canManageUsers,
+        requireAuth, authFetch, login, logout,
+        ROLES,
+    };
 })();

@@ -35,9 +35,15 @@ services:
       MONGO_URI: mongodb://mongo:27017
       MONGO_DB: latentguard
       CSIC_DIR: /app/csic_raw
-      # Operator auth (shared with the Go proxy via JWT_SECRET). Override
-      # ADMIN_PASSWORD_HASH with a real bcrypt hash before exposing this
-      # stack -- the default below is bcrypt('admin'), demo-grade only.
+      # Operator auth (shared with the Go proxy via JWT_SECRET). On first
+      # boot, if the Mongo `users` collection is empty, the ML service
+      # seeds the first admin from BOOTSTRAP_ADMIN_USER /
+      # BOOTSTRAP_ADMIN_PASSWORD_HASH (or the legacy ADMIN_USER /
+      # ADMIN_PASSWORD_HASH names below, kept for backwards-compat with
+      # pre-RBAC deployments). Subsequent users are managed from the
+      # dashboard's Users tab. Override the hash with a real bcrypt
+      # value before exposing this stack -- the default is the
+      # FYP-demo password documented in documentation/04-setup.md.
       ADMIN_USER: "shaheerkj"
       ADMIN_PASSWORD_HASH: "$$2b$$12$$nb3EVaoj8KMD2s2OtwCrN.6gL91P7lfE3EzUu45FXgtcrTm75cnRe"
       JWT_SECRET: "dev-only-secret-change-me-for-anything-non-local"

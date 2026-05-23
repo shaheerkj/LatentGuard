@@ -22,6 +22,7 @@
             <a class="nav-link" data-route="consensus">Consensus</a>
             <a class="nav-link" data-route="logs">Request Log</a>
             <a class="nav-link" data-route="rules">Rules Queue</a>
+            <a class="nav-link" data-route="users" data-role-required="admin" hidden>Users</a>
             <a class="nav-link nav-link--soon" data-route="alerts">Alerts</a>
             <a class="nav-link nav-link--soon" data-route="settings">Settings</a>
         </nav>
@@ -30,6 +31,7 @@
             <span id="ti-status-pill" class="pill pill--neutral">Threat intel</span>
             <span id="drift-pill" class="pill pill--neutral" title="Autoencoder anomaly-score drift vs baseline window">Drift: -</span>
             <span class="topbar-user" id="topbar-user" title="Signed in"></span>
+            <span class="topbar-role pill pill--neutral" id="topbar-role" title="Current role">role: -</span>
             <button class="btn btn-icon-text" id="logout-btn" type="button" title="Sign out">Sign out</button>
         </div>
     </header>
@@ -446,6 +448,77 @@
                         <button class="btn btn-primary" id="rule-modal-save" type="button">Save edit (back to pending)</button>
                     </footer>
                 </div>
+            </div>
+        </section>
+
+        <!-- ===================== USERS (admin-only) ====================== -->
+        <section id="view-users" class="view">
+            <div class="card">
+                <div class="card-header">
+                    <h2>Add user</h2>
+                    <span class="card-sub">Admin only. Bcrypt hash generated server-side.</span>
+                </div>
+                <form id="user-create-form" class="user-form">
+                    <label class="user-field">
+                        <span>Username</span>
+                        <input type="text" id="uc-username" required minlength="1" maxlength="64" autocomplete="off">
+                    </label>
+                    <label class="user-field">
+                        <span>Password (>=8 chars)</span>
+                        <input type="password" id="uc-password" required minlength="8" autocomplete="new-password">
+                    </label>
+                    <label class="user-field">
+                        <span>Role</span>
+                        <select id="uc-role">
+                            <option value="admin">admin</option>
+                            <option value="security-operator" selected>security-operator</option>
+                            <option value="ml-engineer">ml-engineer</option>
+                            <option value="auditor">auditor</option>
+                        </select>
+                    </label>
+                    <button class="btn btn-primary" type="submit" id="uc-submit">Create user</button>
+                    <span class="user-feedback" id="uc-feedback"></span>
+                </form>
+            </div>
+            <div class="card table-card">
+                <div class="card-header">
+                    <h2>Users</h2>
+                    <span class="card-sub">Deactivate preserves the audit trail; delete is permanent.</span>
+                </div>
+                <div class="table-wrap">
+                    <table>
+                        <thead>
+                            <tr>
+                                <th>Username</th>
+                                <th>Role</th>
+                                <th>Active</th>
+                                <th>Last login</th>
+                                <th>Created</th>
+                                <th>Actions</th>
+                            </tr>
+                        </thead>
+                        <tbody id="users-tbody">
+                            <tr><td colspan="6" class="empty">Loading...</td></tr>
+                        </tbody>
+                    </table>
+                </div>
+            </div>
+            <div class="card">
+                <div class="card-header">
+                    <h2>Change your password</h2>
+                </div>
+                <form id="pw-change-form" class="user-form">
+                    <label class="user-field">
+                        <span>Current</span>
+                        <input type="password" id="pw-current" required autocomplete="current-password">
+                    </label>
+                    <label class="user-field">
+                        <span>New (>=8 chars)</span>
+                        <input type="password" id="pw-new" required minlength="8" autocomplete="new-password">
+                    </label>
+                    <button class="btn btn-primary" type="submit" id="pw-submit">Change password</button>
+                    <span class="user-feedback" id="pw-feedback"></span>
+                </form>
             </div>
         </section>
 

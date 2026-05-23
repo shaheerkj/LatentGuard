@@ -186,14 +186,19 @@ func main() {
 			_, _ = w.Write([]byte(`{"safe_mode":false}`))
 		}
 	})
-	mux.Handle("/__safe-mode", verifier.Middleware(safeModeHandler))
+	// /__safe-mode is a read-only status view; any authenticated role
+	// (admin, security-operator, ml-engineer, auditor) can poll it.
+	mux.Handle("/__safe-mode", verifier.MiddlewareRoles(safeModeHandler,
+		"admin", "security-operator", "ml-engineer", "auditor"))
 
 	threatintelHandler := http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
 		corsHeaders(w)
 		w.Header().Set("Content-Type", "application/json")
 		_ = json.NewEncoder(w).Encode(tiManager.Status())
 	})
-	mux.Handle("/__threatintel", verifier.Middleware(threatintelHandler))
+	// /__threatintel is read-only; same role matrix as /__safe-mode.
+	mux.Handle("/__threatintel", verifier.MiddlewareRoles(threatintelHandler,
+		"admin", "security-operator", "ml-engineer", "auditor"))
 
 	// /__reload: M9/M10 trigger -- the ML service POSTs here after writing
 	// promoted rule files into the shared lg-generated dir. We just call
@@ -219,7 +224,12 @@ func main() {
 			"rules_dir":  cfg.rulesDir,
 		})
 	})
-	mux.Handle("/__reload", verifier.Middleware(reloadHandler))
+	// /__reload promotes mined rules into the live Coraza ruleset --
+	// security-policy authority. The ML service mints itself a service
+	// token with sub="ml-service" role="admin" to call this; human
+	// callers must hold admin or security-operator role.
+	mux.Handle("/__reload", verifier.MiddlewareRoles(reloadHandler,
+		"admin", "security-operator"))
 	mux.Handle("/", pipeline.Handler(wafEngine, mlc, store, safe, reverse))
 
 	server := &http.Server{

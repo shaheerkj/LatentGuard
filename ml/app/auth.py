@@ -111,8 +111,14 @@ def verify_password(plain: str, hashed: str) -> bool:
         return False
 
 
-def issue_token(username: str) -> tuple[str, int]:
-    """Returns (jwt, expires_at_unix). Caller decides what to expose."""
+def issue_token(username: str, role: str = "admin") -> tuple[str, int]:
+    """Returns (jwt, expires_at_unix). Caller decides what to expose.
+
+    Role defaults to "admin" for backwards compatibility with internal
+    service callers (e.g. the rule promoter that mints a token for
+    /__reload). Login flow always passes the real role read from the
+    user record.
+    """
     cfg = get_config()
     now = int(time.time())
     exp = now + cfg.ttl_seconds
@@ -121,7 +127,7 @@ def issue_token(username: str) -> tuple[str, int]:
         "iss": JWT_ISSUER,
         "iat": now,
         "exp": exp,
-        "role": "admin",
+        "role": role,
     }
     token = jwt.encode(payload, cfg.secret, algorithm=JWT_ALGORITHM)
     return token, exp
@@ -168,4 +174,26 @@ def require_auth(
             headers={"WWW-Authenticate": 'Bearer error="invalid_token"'},
         )
     request.state.user = payload.get("sub")
+    request.state.role = payload.get("role", "admin")
     return payload
+
+
+def require_role(*allowed_roles: str):
+    """FastAPI dependency factory: 403 unless the caller's JWT role is in
+    `allowed_roles`. Use as `dependencies=[Depends(require_role("admin"))]`
+    on a route, or `Depends(require_role(*Role.RULE_OPERATORS))` for
+    a role set. Internally chains through require_auth so the bearer
+    token is validated first.
+    """
+    allowed = set(allowed_roles)
+
+    def _checker(payload: dict = Depends(require_auth)) -> dict:
+        role = payload.get("role", "admin")
+        if role not in allowed:
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail=f"role {role!r} not permitted (need one of {sorted(allowed)})",
+            )
+        return payload
+
+    return _checker

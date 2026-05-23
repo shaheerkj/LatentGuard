@@ -490,7 +490,9 @@ async function refreshRules() {
 
 function renderRuleActions(r) {
     const buttons = [];
+    // View is read-only -- always available.
     buttons.push(`<button class="btn btn-sm" data-rule-act="view" data-rule-id="${r.rule_id}">View</button>`);
+    if (!LG_AUTH.canManageRules()) return buttons.join(" ");
     if (r.status === "pending") {
         buttons.push(`<button class="btn btn-sm btn-primary" data-rule-act="approve" data-rule-id="${r.rule_id}">Approve</button>`);
         buttons.push(`<button class="btn btn-sm btn-danger" data-rule-act="reject" data-rule-id="${r.rule_id}">Reject</button>`);
@@ -852,18 +854,202 @@ async function refreshDrift() {
 }
 
 async function tick() {
-    await Promise.all([
+    const calls = [
         refreshHealth(), refreshMetrics(), refreshTraffic(), refreshLogs(), refreshRules(),
         refreshModels(), refreshDecisions(), refreshThreatIntel(), refreshDrift(),
-    ]);
+    ];
+    if (LG_AUTH.canManageUsers()) calls.push(refreshUsers());
+    await Promise.all(calls);
 }
 
-// Topbar username + sign-out wiring (auth.js was already loaded by index.html
-// before this script ran).
+// ---------------------------- Users tab (admin) ---------------------------
+async function refreshUsers() {
+    const tbody = document.getElementById("users-tbody");
+    if (!tbody) return;
+    const data = await fetchJSON("/api/auth/users");
+    if (!data) {
+        tbody.innerHTML = `<tr><td colspan="6" class="empty">Failed to load users.</td></tr>`;
+        return;
+    }
+    const rows = data.rows || [];
+    if (rows.length === 0) {
+        tbody.innerHTML = `<tr><td colspan="6" class="empty">No users yet.</td></tr>`;
+        return;
+    }
+    tbody.innerHTML = rows.map(u => `
+        <tr data-username="${escapeHtml(u.username)}">
+            <td><code>${escapeHtml(u.username)}</code></td>
+            <td>
+                <select class="user-role-sel" data-username="${escapeHtml(u.username)}">
+                    ${["admin","security-operator","ml-engineer","auditor"].map(r =>
+                        `<option value="${r}" ${u.role===r?"selected":""}>${r}</option>`).join("")}
+                </select>
+            </td>
+            <td>${u.active ? "<span class='status-pill status-live'>active</span>" : "<span class='status-pill status-expired'>inactive</span>"}</td>
+            <td title="${escapeHtml(u.last_login || "")}">${u.last_login ? relativeTime(u.last_login) : "<span class='muted'>never</span>"}</td>
+            <td>${u.created_at ? relativeTime(u.created_at) : "-"}</td>
+            <td class="actions-cell">
+                <button class="btn btn-sm" data-user-act="${u.active ? "deactivate" : "activate"}" data-username="${escapeHtml(u.username)}">${u.active ? "Disable" : "Enable"}</button>
+                <button class="btn btn-sm" data-user-act="reset-password" data-username="${escapeHtml(u.username)}">Reset password</button>
+                <button class="btn btn-sm btn-danger" data-user-act="delete" data-username="${escapeHtml(u.username)}">Delete</button>
+            </td>
+        </tr>
+    `).join("");
+}
+
+// Users table delegated handler: role change, activate/deactivate, reset
+// password, delete.
+const usersTbody = document.getElementById("users-tbody");
+if (usersTbody) {
+    usersTbody.addEventListener("change", async (e) => {
+        const sel = e.target.closest(".user-role-sel");
+        if (!sel) return;
+        const username = sel.dataset.username;
+        const newRole = sel.value;
+        if (!confirm(`Change role for ${username} to ${newRole}?`)) {
+            refreshUsers();
+            return;
+        }
+        sel.disabled = true;
+        const res = await fetchJSON(`/api/auth/users/${encodeURIComponent(username)}`, {
+            method: "PUT",
+            headers: {"Content-Type": "application/json"},
+            body: JSON.stringify({ role: newRole }),
+        });
+        sel.disabled = false;
+        if (!res) alert("Role change failed (see console). Possibly the only-admin guard fired.");
+        refreshUsers();
+    });
+    usersTbody.addEventListener("click", async (e) => {
+        const btn = e.target.closest("[data-user-act]");
+        if (!btn) return;
+        const username = btn.dataset.username;
+        const act = btn.dataset.userAct;
+        btn.disabled = true;
+        try {
+            if (act === "delete") {
+                if (!confirm(`Hard-delete ${username}? This breaks the audit trail. Prefer Disable.`)) return;
+                const res = await fetchJSON(`/api/auth/users/${encodeURIComponent(username)}`, { method: "DELETE" });
+                if (!res) alert("Delete failed (see console).");
+            } else if (act === "deactivate" || act === "activate") {
+                const res = await fetchJSON(`/api/auth/users/${encodeURIComponent(username)}`, {
+                    method: "PUT",
+                    headers: {"Content-Type": "application/json"},
+                    body: JSON.stringify({ active: act === "activate" }),
+                });
+                if (!res) alert("Status change failed.");
+            } else if (act === "reset-password") {
+                const pw = prompt(`New password for ${username} (min 8 chars):`);
+                if (!pw || pw.length < 8) { alert("Cancelled or too short."); return; }
+                const res = await fetchJSON(`/api/auth/users/${encodeURIComponent(username)}`, {
+                    method: "PUT",
+                    headers: {"Content-Type": "application/json"},
+                    body: JSON.stringify({ password: pw }),
+                });
+                if (!res) alert("Password reset failed.");
+                else alert("Password reset.");
+            }
+        } finally {
+            btn.disabled = false;
+            refreshUsers();
+        }
+    });
+}
+
+// Create-user form.
+const ucForm = document.getElementById("user-create-form");
+if (ucForm) {
+    ucForm.addEventListener("submit", async (e) => {
+        e.preventDefault();
+        const username = document.getElementById("uc-username").value.trim();
+        const password = document.getElementById("uc-password").value;
+        const role = document.getElementById("uc-role").value;
+        const fb = document.getElementById("uc-feedback");
+        const submit = document.getElementById("uc-submit");
+        submit.disabled = true;
+        if (fb) fb.textContent = "creating...";
+        const res = await fetchJSON("/api/auth/users", {
+            method: "POST",
+            headers: {"Content-Type": "application/json"},
+            body: JSON.stringify({ username, password, role }),
+        });
+        submit.disabled = false;
+        if (res) {
+            if (fb) fb.textContent = `created ${res.username} (${res.role})`;
+            ucForm.reset();
+            refreshUsers();
+        } else {
+            if (fb) fb.textContent = "failed - see console";
+        }
+    });
+}
+
+// Change-own-password form.
+const pwForm = document.getElementById("pw-change-form");
+if (pwForm) {
+    pwForm.addEventListener("submit", async (e) => {
+        e.preventDefault();
+        const current = document.getElementById("pw-current").value;
+        const next    = document.getElementById("pw-new").value;
+        const fb = document.getElementById("pw-feedback");
+        const submit = document.getElementById("pw-submit");
+        submit.disabled = true;
+        if (fb) fb.textContent = "changing...";
+        const res = await fetchJSON("/api/auth/me/password", {
+            method: "POST",
+            headers: {"Content-Type": "application/json"},
+            body: JSON.stringify({ current_password: current, new_password: next }),
+        });
+        submit.disabled = false;
+        if (res) {
+            if (fb) fb.textContent = "password changed";
+            pwForm.reset();
+        } else {
+            if (fb) fb.textContent = "failed - check current password";
+        }
+    });
+}
+
+// Topbar username + role + sign-out wiring (auth.js was already loaded by
+// index.html before this script ran). Role pill mirrors current JWT role
+// so the operator can tell at a glance which permissions they have.
 const _topbarUser = document.getElementById("topbar-user");
 if (_topbarUser) _topbarUser.textContent = LG_AUTH.user() || "admin";
+const _topbarRole = document.getElementById("topbar-role");
+if (_topbarRole) {
+    const r = LG_AUTH.role() || "admin";
+    _topbarRole.textContent = `role: ${r}`;
+}
 const _logout = document.getElementById("logout-btn");
 if (_logout) _logout.addEventListener("click", () => LG_AUTH.logout());
+
+// Role-aware UI: hide nav items + buttons the current user has no
+// permission to use. Backend still enforces -- this is *cosmetic* so
+// users don't see buttons they'd only get 403s on. Run synchronously
+// before any data fetch so the user never sees a flash of disabled state.
+(function applyRoleVisibility() {
+    // Users tab (admin only).
+    document.querySelectorAll('[data-role-required="admin"]').forEach(el => {
+        el.hidden = !LG_AUTH.canManageUsers();
+    });
+    // Retrain buttons + consensus save button (model operators).
+    if (!LG_AUTH.canManageModels()) {
+        document.querySelectorAll('[data-retrain]').forEach(b => b.hidden = true);
+        const saveCons = document.getElementById("save-consensus");
+        if (saveCons) saveCons.hidden = true;
+        // Disable consensus sliders so an auditor doesn't think they can
+        // change them and lose the change on the next refresh.
+        document.querySelectorAll('#view-consensus input[type="range"]').forEach(i => i.disabled = true);
+        document.querySelectorAll('#view-consensus input[name="mode"]').forEach(i => i.disabled = true);
+    }
+    // Mining run + rule action buttons (rule operators).
+    if (!LG_AUTH.canManageRules()) {
+        const mineBtn = document.getElementById("mine-run");
+        if (mineBtn) mineBtn.hidden = true;
+        // Per-row buttons in the rules table are rendered dynamically;
+        // renderRuleActions checks the same predicate.
+    }
+})();
 
 refreshConsensusConfig();
 tick();

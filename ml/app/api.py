@@ -6,10 +6,11 @@ import sys
 from pathlib import Path
 from typing import Any, Literal
 
-from fastapi import APIRouter, BackgroundTasks, HTTPException, Query, Request
+from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, Query, Request
 from pydantic import BaseModel, Field
 from pymongo.errors import PyMongoError
 
+from .auth import require_role
 from .consensus import ConsensusConfig, ConsensusMode, get_config, save_config
 from .db import requests_collection, rules_collection
 from .mining import MinerConfig, mine_patterns
@@ -26,6 +27,7 @@ from .rulegen import (
     reject_rule,
 )
 from .rulegen.promoter import promote_approved, remove_expired
+from .users import Role
 
 logger = logging.getLogger("latentguard.ml.api")
 
@@ -212,7 +214,10 @@ def consensus_config_get() -> dict[str, Any]:
     return _config_to_payload(get_config())
 
 
-@router.put("/consensus/config")
+@router.put(
+    "/consensus/config",
+    dependencies=[Depends(require_role(*Role.MODEL_OPERATORS))],
+)
 def consensus_config_put(payload: ConsensusConfigPayload) -> dict[str, Any]:
     cfg = ConsensusConfig(
         mode=ConsensusMode(payload.mode),
@@ -257,7 +262,10 @@ def _run_training(module: str) -> None:
             logger.warning("retrain: reload failed: %s", exc)
 
 
-@router.post("/models/retrain")
+@router.post(
+    "/models/retrain",
+    dependencies=[Depends(require_role(*Role.MODEL_OPERATORS))],
+)
 def models_retrain(
     bg: BackgroundTasks,
     model: Literal["autoencoder", "hdbscan"] = Query(...),
@@ -283,7 +291,10 @@ class MineRequest(BaseModel):
     provider: str | None = None  # stub|openai|anthropic; defaults to LLM_PROVIDER env
 
 
-@router.post("/mining/run")
+@router.post(
+    "/mining/run",
+    dependencies=[Depends(require_role(*Role.RULE_OPERATORS))],
+)
 def mining_run(req: MineRequest) -> dict[str, Any]:
     cfg = MinerConfig(
         min_support=req.min_support,
@@ -346,7 +357,10 @@ class TransitionPayload(BaseModel):
     note: str | None = None
 
 
-@router.post("/rules/candidates/{rule_id}/approve")
+@router.post(
+    "/rules/candidates/{rule_id}/approve",
+    dependencies=[Depends(require_role(*Role.RULE_OPERATORS))],
+)
 def rules_candidates_approve(
     rule_id: int, payload: TransitionPayload, request: Request
 ) -> dict[str, Any]:
@@ -361,7 +375,10 @@ def rules_candidates_approve(
     return {"rule": _rule_to_payload(get_rule(rule_id) or doc), "promote": promote}
 
 
-@router.post("/rules/candidates/{rule_id}/reject")
+@router.post(
+    "/rules/candidates/{rule_id}/reject",
+    dependencies=[Depends(require_role(*Role.RULE_OPERATORS))],
+)
 def rules_candidates_reject(
     rule_id: int, payload: TransitionPayload, request: Request
 ) -> dict[str, Any]:
@@ -375,7 +392,10 @@ def rules_candidates_reject(
     return _rule_to_payload(doc)
 
 
-@router.post("/rules/candidates/{rule_id}/expire")
+@router.post(
+    "/rules/candidates/{rule_id}/expire",
+    dependencies=[Depends(require_role(*Role.RULE_OPERATORS))],
+)
 def rules_candidates_expire(
     rule_id: int, payload: TransitionPayload, request: Request
 ) -> dict[str, Any]:
@@ -396,7 +416,10 @@ class EditPayload(BaseModel):
     notes: str | None = None
 
 
-@router.put("/rules/candidates/{rule_id}")
+@router.put(
+    "/rules/candidates/{rule_id}",
+    dependencies=[Depends(require_role(*Role.RULE_OPERATORS))],
+)
 def rules_candidates_edit(
     rule_id: int, payload: EditPayload, request: Request
 ) -> dict[str, Any]:
@@ -416,7 +439,10 @@ def rules_candidates_edit(
     return _rule_to_payload(doc)
 
 
-@router.delete("/rules/candidates/{rule_id}")
+@router.delete(
+    "/rules/candidates/{rule_id}",
+    dependencies=[Depends(require_role(*Role.RULE_OPERATORS))],
+)
 def rules_candidates_delete(rule_id: int) -> dict[str, Any]:
     if not delete_rule(rule_id):
         raise HTTPException(status_code=404, detail="rule_id not found")
@@ -425,9 +451,16 @@ def rules_candidates_delete(rule_id: int) -> dict[str, Any]:
 
 
 def _request_actor(request: Request) -> str:
-    """Pull the username from require_auth's request.state.user."""
-    user = getattr(request.state, "user", None)
-    return str(user) if user else "unknown"
+    """Pull the username (with role) from require_auth's request.state.
+
+    Returns "<username>(<role>)" so the edit_history audit trail in
+    rules_queue captures both who acted and the privilege under which
+    they acted. Compliance answer: "who did what, with what permission,
+    when".
+    """
+    user = getattr(request.state, "user", None) or "unknown"
+    role = getattr(request.state, "role", None) or "?"
+    return f"{user}({role})"
 
 
 # ---------------------------------------------------------------------------

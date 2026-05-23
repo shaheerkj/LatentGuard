@@ -92,10 +92,28 @@ func (v *Verifier) Verify(r *http.Request) (jwt.MapClaims, error) {
 	return claims, nil
 }
 
-// Middleware wraps an http.Handler, requiring a valid JWT on every request.
-// On failure writes a JSON error and the appropriate status code. On
-// success calls the inner handler.
+// ErrForbidden is returned when the caller's JWT role is not in the
+// allowedRoles set passed to MiddlewareRoles. Surfaced as HTTP 403.
+var ErrForbidden = errors.New("role not permitted")
+
+// Middleware wraps an http.Handler, requiring a valid JWT but accepting
+// any role. Equivalent to MiddlewareRoles with an empty role set --
+// kept as a no-arg shortcut for endpoints that are auth-gated but not
+// role-gated (status reads, healthchecks-with-credentials).
 func (v *Verifier) Middleware(inner http.Handler) http.Handler {
+	return v.MiddlewareRoles(inner)
+}
+
+// MiddlewareRoles wraps an http.Handler, requiring a valid JWT AND a role
+// in `allowedRoles`. Pass no roles to accept any role (auth-only gate).
+// 403 (not 401) when the token is valid but the role is wrong, so the
+// dashboard can show "you don't have permission" instead of pushing the
+// user back to login.
+func (v *Verifier) MiddlewareRoles(inner http.Handler, allowedRoles ...string) http.Handler {
+	allowed := make(map[string]struct{}, len(allowedRoles))
+	for _, r := range allowedRoles {
+		allowed[r] = struct{}{}
+	}
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		// Let CORS preflights through; the browser won't carry credentials
 		// on OPTIONS by default and the dashboard relies on the OPTIONS
@@ -104,23 +122,32 @@ func (v *Verifier) Middleware(inner http.Handler) http.Handler {
 			inner.ServeHTTP(w, r)
 			return
 		}
-		_, err := v.Verify(r)
-		if err == nil {
-			inner.ServeHTTP(w, r)
+		claims, err := v.Verify(r)
+		if err != nil {
+			w.Header().Set("Content-Type", "application/json")
+			w.Header().Set("WWW-Authenticate", `Bearer realm="latentguard"`)
+			switch {
+			case errors.Is(err, ErrNoSecret):
+				w.WriteHeader(http.StatusServiceUnavailable)
+				_, _ = w.Write([]byte(`{"error":"auth misconfigured: JWT_SECRET unset"}`))
+			case errors.Is(err, ErrExpired):
+				w.WriteHeader(http.StatusUnauthorized)
+				_, _ = w.Write([]byte(`{"error":"token expired"}`))
+			default:
+				w.WriteHeader(http.StatusUnauthorized)
+				_, _ = w.Write([]byte(`{"error":"unauthorized"}`))
+			}
 			return
 		}
-		w.Header().Set("Content-Type", "application/json")
-		w.Header().Set("WWW-Authenticate", `Bearer realm="latentguard"`)
-		switch {
-		case errors.Is(err, ErrNoSecret):
-			w.WriteHeader(http.StatusServiceUnavailable)
-			_, _ = w.Write([]byte(`{"error":"auth misconfigured: JWT_SECRET unset"}`))
-		case errors.Is(err, ErrExpired):
-			w.WriteHeader(http.StatusUnauthorized)
-			_, _ = w.Write([]byte(`{"error":"token expired"}`))
-		default:
-			w.WriteHeader(http.StatusUnauthorized)
-			_, _ = w.Write([]byte(`{"error":"unauthorized"}`))
+		if len(allowed) > 0 {
+			role, _ := claims["role"].(string)
+			if _, ok := allowed[role]; !ok {
+				w.Header().Set("Content-Type", "application/json")
+				w.WriteHeader(http.StatusForbidden)
+				_, _ = w.Write([]byte(`{"error":"role not permitted"}`))
+				return
+			}
 		}
+		inner.ServeHTTP(w, r)
 	})
 }
