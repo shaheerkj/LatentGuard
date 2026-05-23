@@ -116,6 +116,31 @@ class _Store:
         x = np.array([features_vec], dtype="float32")
 
         if self.ae_model is not None and self.ae_scaler is not None:
+            # Train/serve dimension reconciliation. The proxy now sends
+            # 11 features (7 original + 4 n-gram); a model trained before
+            # the n-gram patch expects 7. Rather than crash on
+            # scaler.transform with shape mismatch, we truncate the input
+            # vector to whatever the scaler was fitted on and surface a
+            # one-time warning so the operator retrains. Once the model
+            # is retrained the truncation collapses to a no-op.
+            expected_dim = getattr(self.ae_scaler, "n_features_in_", x.shape[1])
+            if x.shape[1] != expected_dim:
+                if not self._warned_missing:
+                    logger.warning(
+                        "feature dim mismatch: got %d, model expects %d -- "
+                        "TRAIN A NEW MODEL via /api/models/retrain. "
+                        "Operating with the first %d features only.",
+                        x.shape[1], expected_dim, expected_dim,
+                    )
+                    self._warned_missing = True
+                if x.shape[1] > expected_dim:
+                    x = x[:, :expected_dim]
+                else:
+                    pad = np.zeros((1, expected_dim - x.shape[1]), dtype="float32")
+                    x = np.concatenate([x, pad], axis=1)
+                out.notes.append(
+                    f"feature-dim shim active ({features_vec.__len__()}->{expected_dim}); retrain to clear"
+                )
             xs = self.ae_scaler.transform(x).astype("float32")
             recon = self.ae_model.predict(xs, verbose=0)
             err = float(np.mean(np.square(xs - recon), axis=1)[0])

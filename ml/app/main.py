@@ -87,6 +87,10 @@ def score(request: ScoreRequest) -> ScoreResponse:
         float(feats.digit_ratio),
         float(feats.uppercase_ratio),
         1.0 if feats.method_is_post else 0.0,
+        float(feats.ngram3_entropy),
+        float(feats.ngram3_unique_ratio),
+        float(feats.ngram4_entropy),
+        float(feats.ngram4_unique_ratio),
     ]
 
     store = get_store()

@@ -54,3 +54,29 @@ func TestNormalize_EmptyRequest(t *testing.T) {
 		t.Errorf("expected empty query, got %q", n.CanonicalQuery)
 	}
 }
+
+// Parity with ml/app/features.py _ngram_stats. Each row is a literal
+// produced by the Python reference implementation (round to 4 places).
+// If either implementation drifts, this test starts failing -- the
+// scaler/AE then sees train/serve skew and silently mis-scores.
+func TestNgramStatsParity(t *testing.T) {
+	cases := []struct {
+		text          string
+		n             int
+		wantH         float64
+		wantUniqRatio float64
+	}{
+		{"abcabc", 3, 1.5, 0.75},
+		{"abcabc", 4, 1.585, 1.0},
+		{"hello world", 3, 3.1699, 1.0},
+		{"aaa", 3, 0.0, 1.0},
+		{"xx", 3, 0.0, 0.0},
+	}
+	for _, c := range cases {
+		gotH, gotU := ngramStats(c.text, c.n)
+		if gotH != c.wantH || gotU != c.wantUniqRatio {
+			t.Errorf("ngramStats(%q, %d) = (%v, %v), want (%v, %v)",
+				c.text, c.n, gotH, gotU, c.wantH, c.wantUniqRatio)
+		}
+	}
+}

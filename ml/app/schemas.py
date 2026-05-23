@@ -19,6 +19,14 @@ class NormalizedFeatures(BaseModel):
     digit_ratio: float = 0.0
     uppercase_ratio: float = 0.0
     method_is_post: bool = False
+    # n-gram summary stats. Defaults to 0.0 so audit rows captured
+    # against an old proxy build (pre-n-gram) deserialize cleanly --
+    # the autoencoder treats zeros as "no n-gram signal" rather than
+    # rejecting the request.
+    ngram3_entropy: float = 0.0
+    ngram3_unique_ratio: float = 0.0
+    ngram4_entropy: float = 0.0
+    ngram4_unique_ratio: float = 0.0
 
 
 class ScoreRequest(BaseModel):

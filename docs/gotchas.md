@@ -323,3 +323,27 @@ Numbering is preserved from the historical CLAUDE.md so cross-references
     `"ml-service"` to make it greppable in proxy logs vs human logins.
     If reload starts failing with 401 in prod, check that the proxy
     is on the same JWT_SECRET (see gotcha #29).
+
+35. **`[ML]` Feature vector changed from 7 -> 11 (n-gram patch).**
+    `features.py` and `proxy/internal/normalizer/normalizer.go` MUST
+    stay in lock-step on field count and order. The parity test in
+    `proxy/internal/normalizer/normalizer_test.go::TestNgramStatsParity`
+    asserts the Go ngramStats output matches the Python
+    `_ngram_stats` for a fixed set of inputs -- if either drifts,
+    the test fails. After bumping the feature set, retrain both AE
+    and HDBSCAN (dashboard's Anomaly Models tab -> Retrain) so the
+    scaler sees the new dimension. `models.py` has a defensive shim
+    that truncates/pads the vector to the scaler's expected dim and
+    surfaces a one-time warning so the proxy does not crash while a
+    stale model is still loaded -- but detection quality degrades
+    until retrain completes.
+
+36. **`[ML]` n-gram stats use BYTE indexing, not rune.** Both
+    implementations use byte slicing (`text[i:i+n]` in Python,
+    `text[i:i+n]` in Go) so they line up on ASCII canonicalised
+    payloads. Multi-byte UTF-8 in the canonical text would produce
+    different gram boundaries between the two -- but the canonical
+    body is lowercased+stripped from a request body that has
+    already been url-decoded, so non-ASCII in practice arrives
+    only when an attacker is deliberately probing UTF-8 evasion,
+    which is itself a useful signal.

@@ -25,6 +25,16 @@ FEATURE_NAMES: tuple[str, ...] = (
     "digit_ratio",
     "uppercase_ratio",
     "method_is_post",
+    # Character n-gram statistics. 3- and 4-grams capture short adversarial
+    # motifs that the single-character ratios miss -- e.g. "<sc" + "scri"
+    # repeated in obfuscated XSS, or "1=1" + "='1'" in classic SQLi.
+    # We use SUMMARY STATS over the n-gram distribution rather than a fixed
+    # vocabulary so the feature dimension is bounded and there is no
+    # train/serve vocabulary drift.
+    "ngram3_entropy",       # Shannon entropy of the 3-gram distribution
+    "ngram3_unique_ratio",  # unique 3-grams / total 3-grams (diversity)
+    "ngram4_entropy",
+    "ngram4_unique_ratio",
 )
 
 
@@ -37,6 +47,10 @@ class Features:
     digit_ratio: float = 0.0
     uppercase_ratio: float = 0.0
     method_is_post: bool = False
+    ngram3_entropy: float = 0.0
+    ngram3_unique_ratio: float = 0.0
+    ngram4_entropy: float = 0.0
+    ngram4_unique_ratio: float = 0.0
 
     def to_vector(self) -> list[float]:
         return [
@@ -47,6 +61,10 @@ class Features:
             float(self.digit_ratio),
             float(self.uppercase_ratio),
             1.0 if self.method_is_post else 0.0,
+            float(self.ngram3_entropy),
+            float(self.ngram3_unique_ratio),
+            float(self.ngram4_entropy),
+            float(self.ngram4_unique_ratio),
         ]
 
     def to_dict(self) -> dict:
@@ -118,6 +136,8 @@ def extract_features(text: str, method: str) -> Features:
         else:
             in_token = False
 
+    ng3_h, ng3_uniq = _ngram_stats(text, 3)
+    ng4_h, ng4_uniq = _ngram_stats(text, 4)
     return Features(
         length=length,
         entropy=_shannon_entropy(freq, length),
@@ -126,6 +146,10 @@ def extract_features(text: str, method: str) -> Features:
         digit_ratio=_ratio(digits, length),
         uppercase_ratio=_ratio(uppers, length),
         method_is_post=is_post,
+        ngram3_entropy=ng3_h,
+        ngram3_unique_ratio=ng3_uniq,
+        ngram4_entropy=ng4_h,
+        ngram4_unique_ratio=ng4_uniq,
     )
 
 
@@ -152,6 +176,37 @@ def split_target(target: str) -> tuple[str, str]:
     if not m:
         return target or "/", ""
     return m.group(1) or "/", m.group(2) or ""
+
+
+def _ngram_stats(text: str, n: int) -> tuple[float, float]:
+    """Return (entropy, unique_ratio) over the character n-gram distribution.
+
+    Both metrics are bounded so they scale across short and long payloads:
+        entropy        -- 0 when one n-gram dominates, log2(unique) at max
+        unique_ratio   -- 0..1, high for diverse/obfuscated payloads, low
+                          for repetitive ones (benign URLs lean low)
+
+    Empty strings or strings shorter than n collapse to (0, 0) so the
+    feature contributes no signal in degenerate cases.
+    """
+    if len(text) < n:
+        return 0.0, 0.0
+    counts: dict[str, int] = {}
+    total = 0
+    for i in range(len(text) - n + 1):
+        gram = text[i:i + n]
+        counts[gram] = counts.get(gram, 0) + 1
+        total += 1
+    if total == 0:
+        return 0.0, 0.0
+    h = 0.0
+    inv = 1.0 / total
+    for c in counts.values():
+        p = c * inv
+        h -= p * math.log2(p)
+    h = round(h * 10000) / 10000
+    uniq = round((len(counts) / total) * 10000) / 10000
+    return h, uniq
 
 
 def _shannon_entropy(freq: dict[str, int], total: int) -> float:
