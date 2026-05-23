@@ -11,7 +11,7 @@ Grouped by viva-impact / effort. Cross-references in `documentation/` and `docs/
 - [ ] **#2 Sandbox-test a candidate rule before promotion** (FR5.5) — show which past requests would match the proposed rule before approving
 - [ ] **#3 MFA + account lockout + brute-force alert** (SEC-1 / SEC-4 / SEC-10 bundle)
 - [ ] **#4 Loss-curve viz during retraining** (FR7.4)
-- [ ] **#5 Decision override + reason audit** (FR4.5)
+- [x] **#5 Decision override + reason audit** (FR4.5) — commit `6a2ae89`
 
 ---
 

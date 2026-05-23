@@ -1240,3 +1240,15 @@ tr:hover .method-tag {
     margin-top: 2px;
     word-break: break-word;
 }
+
+/* ---------- MFA enrollment pane ---------- */
+.mfa-pane {
+    padding: 14px 18px;
+    border-top: 1px solid var(--border);
+    background: var(--surface-1);
+}
+.mfa-pane .code-block {
+    word-break: break-all;
+    white-space: pre-wrap;
+    font-size: 11.5px;
+}

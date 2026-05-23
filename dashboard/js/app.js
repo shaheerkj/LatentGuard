@@ -895,10 +895,119 @@ async function tick() {
     const calls = [
         refreshHealth(), refreshMetrics(), refreshTraffic(), refreshLogs(), refreshRules(),
         refreshModels(), refreshDecisions(), refreshThreatIntel(), refreshDrift(),
+        refreshBruteForce(),
     ];
     if (LG_AUTH.canManageUsers()) calls.push(refreshUsers());
     await Promise.all(calls);
 }
+
+// SEC-10: top-of-screen pill + Users-tab table for IPs that hit
+// the brute-force threshold within the rolling 5-minute window.
+async function refreshBruteForce() {
+    const pill = document.getElementById("bruteforce-pill");
+    const data = await fetchJSON("/api/auth/alerts/brute-force");
+    if (!data) {
+        if (pill) { pill.className = "pill pill--danger"; pill.textContent = "Auth: down"; }
+        return;
+    }
+    const alerts = data.alerts || [];
+    if (pill) {
+        if (alerts.length === 0) {
+            pill.className = "pill pill--ok";
+            pill.textContent = "Auth: clean";
+        } else {
+            pill.className = "pill pill--danger";
+            pill.textContent = `Auth: ${alerts.length} hot IP${alerts.length === 1 ? "" : "s"}`;
+            pill.title = alerts.map(a => `${a.ip} (${a.count} fails)`).join("\n");
+        }
+    }
+    const tbody = document.getElementById("bruteforce-tbody");
+    if (tbody) {
+        if (alerts.length === 0) {
+            tbody.innerHTML = `<tr><td colspan="4" class="empty">No alerts.</td></tr>`;
+        } else {
+            tbody.innerHTML = alerts.map(a => `
+                <tr>
+                    <td><code>${escapeHtml(a.ip)}</code></td>
+                    <td>${a.count}</td>
+                    <td title="${escapeHtml(a.last || "")}">${relativeTime(a.last)}</td>
+                    <td>${(a.usernames || []).map(u => `<span class="item-chip">${escapeHtml(u)}</span>`).join("") || "<span class='muted'>none</span>"}</td>
+                </tr>`).join("");
+        }
+    }
+}
+
+// MFA self-service flow on the Users tab.
+async function refreshMfaState() {
+    const statusEl = document.getElementById("mfa-status");
+    if (!statusEl) return;
+    const me = await fetchJSON("/api/auth/me");
+    if (!me) { statusEl.textContent = "Unable to load MFA state."; return; }
+    const enroll = document.getElementById("mfa-enroll-btn");
+    const disable = document.getElementById("mfa-disable-btn");
+    const pane = document.getElementById("mfa-enroll-pane");
+    if (me.mfa_enabled) {
+        statusEl.textContent = "MFA enabled.";
+        enroll.hidden = true;
+        disable.hidden = false;
+        pane.hidden = true;
+    } else {
+        statusEl.textContent = "MFA not enabled.";
+        enroll.hidden = false;
+        disable.hidden = true;
+    }
+}
+
+const mfaEnrollBtn = document.getElementById("mfa-enroll-btn");
+if (mfaEnrollBtn) {
+    mfaEnrollBtn.addEventListener("click", async () => {
+        mfaEnrollBtn.disabled = true;
+        const res = await fetchJSON("/api/auth/me/mfa/begin", { method: "POST" });
+        mfaEnrollBtn.disabled = false;
+        if (!res) { alert("Enrollment start failed."); return; }
+        document.getElementById("mfa-uri").textContent = res.otpauth_uri;
+        document.getElementById("mfa-secret").value = res.secret;
+        document.getElementById("mfa-enroll-pane").hidden = false;
+    });
+}
+
+const mfaConfirmBtn = document.getElementById("mfa-confirm-btn");
+if (mfaConfirmBtn) {
+    mfaConfirmBtn.addEventListener("click", async () => {
+        const code = (document.getElementById("mfa-confirm-code").value || "").trim();
+        if (code.length < 6) { alert("Enter the 6-digit code from your app."); return; }
+        mfaConfirmBtn.disabled = true;
+        const res = await fetchJSON("/api/auth/me/mfa/confirm", {
+            method: "POST",
+            headers: {"Content-Type": "application/json"},
+            body: JSON.stringify({ code }),
+        });
+        mfaConfirmBtn.disabled = false;
+        if (!res) { alert("MFA confirmation failed -- check the code (it expires every 30s)."); return; }
+        alert("MFA enabled. You'll need the code on every login from now on.");
+        refreshMfaState();
+    });
+}
+
+const mfaDisableBtn = document.getElementById("mfa-disable-btn");
+if (mfaDisableBtn) {
+    mfaDisableBtn.addEventListener("click", async () => {
+        const pw = prompt("Confirm your current password to disable MFA:");
+        if (!pw) return;
+        const res = await fetchJSON("/api/auth/me/mfa/disable", {
+            method: "POST",
+            headers: {"Content-Type": "application/json"},
+            body: JSON.stringify({ password: pw }),
+        });
+        if (!res) { alert("Disable failed (wrong password?)."); return; }
+        refreshMfaState();
+    });
+}
+
+// Refresh MFA state on Users-tab activation so its visible immediately.
+document.querySelectorAll('[data-route="users"]').forEach(link => {
+    link.addEventListener("click", () => setTimeout(refreshMfaState, 50));
+});
 
 // ---------------------------- Users tab (admin) ---------------------------
 async function refreshUsers() {

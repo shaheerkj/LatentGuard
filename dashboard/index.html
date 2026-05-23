@@ -30,6 +30,7 @@
             <span id="safe-mode-pill" class="pill pill--ok">ML</span>
             <span id="ti-status-pill" class="pill pill--neutral">Threat intel</span>
             <span id="drift-pill" class="pill pill--neutral" title="Autoencoder anomaly-score drift vs baseline window">Drift: -</span>
+            <span id="bruteforce-pill" class="pill pill--ok" title="IPs with >10 failed logins in the last 5 minutes">Auth: clean</span>
             <span class="topbar-user" id="topbar-user" title="Signed in"></span>
             <span class="topbar-role pill pill--neutral" id="topbar-role" title="Current role">role: -</span>
             <button class="btn btn-icon-text" id="logout-btn" type="button" title="Sign out">Sign out</button>
@@ -503,6 +504,55 @@
                     </table>
                 </div>
             </div>
+            <div class="card">
+                <div class="card-header">
+                    <h2>Multi-factor authentication</h2>
+                    <span class="card-sub">TOTP via any authenticator app (Google Authenticator, Authy, 1Password, ...)</span>
+                </div>
+                <div id="mfa-state" class="user-form">
+                    <span id="mfa-status" class="user-feedback">Loading...</span>
+                    <button class="btn" id="mfa-enroll-btn" type="button" hidden>Set up MFA</button>
+                    <button class="btn btn-danger" id="mfa-disable-btn" type="button" hidden>Disable MFA</button>
+                </div>
+                <div id="mfa-enroll-pane" hidden class="mfa-pane">
+                    <p class="muted">Scan this URI with your authenticator app, or copy the secret manually. Then enter the 6-digit code to confirm.</p>
+                    <pre class="code-block" id="mfa-uri"></pre>
+                    <div class="user-form">
+                        <label class="user-field">
+                            <span>Secret (manual entry)</span>
+                            <input type="text" id="mfa-secret" readonly>
+                        </label>
+                        <label class="user-field">
+                            <span>Confirm with 6-digit code</span>
+                            <input type="text" id="mfa-confirm-code" inputmode="numeric" maxlength="10">
+                        </label>
+                        <button class="btn btn-primary" id="mfa-confirm-btn" type="button">Confirm</button>
+                    </div>
+                </div>
+            </div>
+
+            <div class="card">
+                <div class="card-header">
+                    <h2>Brute-force watch</h2>
+                    <span class="card-sub">IPs with >10 failed logins in the last 5 minutes (SEC-10)</span>
+                </div>
+                <div class="table-wrap">
+                    <table>
+                        <thead>
+                            <tr>
+                                <th>IP</th>
+                                <th>Failed attempts</th>
+                                <th>Last attempt</th>
+                                <th>Usernames tried</th>
+                            </tr>
+                        </thead>
+                        <tbody id="bruteforce-tbody">
+                            <tr><td colspan="4" class="empty">No alerts.</td></tr>
+                        </tbody>
+                    </table>
+                </div>
+            </div>
+
             <div class="card">
                 <div class="card-header">
                     <h2>Change your password</h2>

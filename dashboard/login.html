@@ -32,6 +32,10 @@
                     <span>Password</span>
                     <input type="password" id="login-password" name="password" autocomplete="current-password" required>
                 </label>
+                <label class="login-field" id="login-mfa-field" hidden>
+                    <span>Authenticator code</span>
+                    <input type="text" id="login-mfa" inputmode="numeric" pattern="[0-9]*" maxlength="10" autocomplete="one-time-code" placeholder="6-digit code">
+                </label>
                 <button type="submit" class="btn btn-primary login-submit" id="login-submit">Sign in</button>
                 <p class="login-error" id="login-error" hidden></p>
             </form>

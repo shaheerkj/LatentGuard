@@ -1,4 +1,4 @@
-"""User store + role matrix backing RBAC.
+"""User store + role matrix backing RBAC + MFA + brute-force defence.
 
 Multi-role authentication on top of the existing JWT machinery. The
 JWT payload's `role` claim now comes from the user record (Mongo
@@ -31,7 +31,7 @@ from __future__ import annotations
 import logging
 import os
 from dataclasses import dataclass
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from typing import Any, Iterable
 
 import bcrypt
@@ -295,11 +295,210 @@ def authenticate(username: str, password: str) -> tuple[bool, dict[str, Any] | N
     _maybe_init()
     user = get_user(username)
     if user is None or not user.get("active", True):
-        # Burn a bcrypt op so missing-user response time matches the
-        # wrong-password path.
         _ = verify_password(password, "$2b$12$" + "x" * 53)
         return False, None
     if not verify_password(password, user.get("password_hash", "")):
         return False, None
     safe = {k: v for k, v in user.items() if k != "password_hash"}
     return True, safe
+
+
+# ---------------------------------------------------------------------------
+# Account lockout + brute-force defence (SEC-4, SEC-10)
+# ---------------------------------------------------------------------------
+
+MAX_FAILED_BEFORE_LOCKOUT = 5
+LOCKOUT_MINUTES = 15
+IP_ALERT_WINDOW_SECONDS = 300  # 5-minute window
+IP_ALERT_THRESHOLD = 10        # >10 fails / 5 min triggers alert
+
+
+def is_locked(user_doc: dict[str, Any] | None) -> bool:
+    if not user_doc:
+        return False
+    locked_until = user_doc.get("locked_until")
+    if not locked_until:
+        return False
+    if isinstance(locked_until, str):
+        try:
+            locked_until = datetime.fromisoformat(locked_until)
+        except ValueError:
+            return False
+    return datetime.now(timezone.utc) < locked_until
+
+
+def record_failure(username: str) -> dict[str, Any] | None:
+    """Increment failed_login_count; lock the account on the threshold."""
+    _maybe_init()
+    try:
+        col = _collection()
+        current = col.find_one({"username": username})
+        if not current:
+            return None
+        fails = int(current.get("failed_login_count", 0)) + 1
+        sets = {"failed_login_count": fails, "last_failed_login": datetime.now(timezone.utc)}
+        if fails >= MAX_FAILED_BEFORE_LOCKOUT:
+            sets["locked_until"] = datetime.now(timezone.utc) + timedelta(minutes=LOCKOUT_MINUTES)
+            logger.warning("users: locking %s for %d min after %d failures",
+                           username, LOCKOUT_MINUTES, fails)
+        col.update_one({"username": username}, {"$set": sets})
+        return col.find_one({"username": username})
+    except PyMongoError as exc:
+        logger.warning("users.record_failure: %s", exc)
+        return None
+
+
+def reset_failures(username: str) -> None:
+    _maybe_init()
+    try:
+        _collection().update_one(
+            {"username": username},
+            {"$set": {"failed_login_count": 0, "locked_until": None}},
+        )
+    except PyMongoError as exc:
+        logger.warning("users.reset_failures: %s", exc)
+
+
+def record_ip_attempt(ip: str, ok: bool, username: str | None) -> int:
+    """Append to a small login_attempts collection. Returns the running
+    failure count for this IP within IP_ALERT_WINDOW_SECONDS.
+
+    The collection has a TTL index so entries auto-evict; brute-force
+    counting is just a windowed find().count() against the live data.
+    """
+    if not ip:
+        return 0
+    _maybe_init_attempts()
+    now = datetime.now(timezone.utc)
+    try:
+        col = get_db()["login_attempts"]
+        col.insert_one({"ip": ip, "username": username, "ok": ok, "at": now})
+        if ok:
+            return 0
+        window_start = now - timedelta(seconds=IP_ALERT_WINDOW_SECONDS)
+        return col.count_documents(
+            {"ip": ip, "ok": False, "at": {"$gte": window_start}}
+        )
+    except PyMongoError as exc:
+        logger.warning("users.record_ip_attempt: %s", exc)
+        return 0
+
+
+_ATTEMPTS_READY = False
+
+
+def _maybe_init_attempts() -> None:
+    global _ATTEMPTS_READY
+    if _ATTEMPTS_READY:
+        return
+    try:
+        col = get_db()["login_attempts"]
+        col.create_index([("ip", ASCENDING), ("at", ASCENDING)])
+        # TTL of one hour -- far above the alert window; we never need
+        # records older than that.
+        col.create_index([("at", ASCENDING)], expireAfterSeconds=3600)
+        _ATTEMPTS_READY = True
+    except PyMongoError as exc:
+        logger.warning("login_attempts: index init failed: %s", exc)
+
+
+def brute_force_alerts(limit: int = 20) -> list[dict[str, Any]]:
+    """Return IPs with > IP_ALERT_THRESHOLD failed logins in the window."""
+    _maybe_init_attempts()
+    try:
+        col = get_db()["login_attempts"]
+        window_start = datetime.now(timezone.utc) - timedelta(seconds=IP_ALERT_WINDOW_SECONDS)
+        pipeline = [
+            {"$match": {"ok": False, "at": {"$gte": window_start}}},
+            {"$group": {"_id": "$ip", "count": {"$sum": 1},
+                        "last": {"$max": "$at"},
+                        "usernames": {"$addToSet": "$username"}}},
+            {"$match": {"count": {"$gt": IP_ALERT_THRESHOLD}}},
+            {"$sort": {"count": -1}},
+            {"$limit": limit},
+        ]
+        out = []
+        for row in col.aggregate(pipeline):
+            out.append({
+                "ip": row["_id"],
+                "count": row["count"],
+                "last": row["last"].isoformat() if row.get("last") else None,
+                "usernames": [u for u in row.get("usernames", []) if u],
+            })
+        return out
+    except PyMongoError as exc:
+        logger.warning("users.brute_force_alerts: %s", exc)
+        return []
+
+
+# ---------------------------------------------------------------------------
+# MFA (TOTP, SEC-1)
+# ---------------------------------------------------------------------------
+
+
+def generate_mfa_secret(username: str) -> tuple[str, str]:
+    """Mint a fresh TOTP secret for the user, store as PENDING (not enabled
+    until the user confirms with a valid code). Returns (secret, otpauth_uri)
+    so the dashboard can render a QR code or pasteable secret.
+    """
+    import pyotp
+    _maybe_init()
+    secret = pyotp.random_base32()
+    uri = pyotp.totp.TOTP(secret).provisioning_uri(
+        name=username, issuer_name="LatentGuard"
+    )
+    _collection().update_one(
+        {"username": username},
+        {"$set": {"mfa_secret_pending": secret, "updated_at": datetime.now(timezone.utc)}},
+    )
+    return secret, uri
+
+
+def enable_mfa(username: str, code: str) -> bool:
+    """Confirm enrollment: code must validate against the pending secret.
+    On success, promotes pending -> active secret and flips mfa_enabled.
+    """
+    import pyotp
+    _maybe_init()
+    user = get_user(username)
+    if not user:
+        raise KeyError(username)
+    pending = user.get("mfa_secret_pending")
+    if not pending:
+        raise ValueError("no pending MFA enrollment; call generate first")
+    totp = pyotp.TOTP(pending)
+    if not totp.verify(code, valid_window=1):
+        return False
+    _collection().update_one(
+        {"username": username},
+        {
+            "$set": {
+                "mfa_enabled": True,
+                "mfa_secret": pending,
+                "updated_at": datetime.now(timezone.utc),
+            },
+            "$unset": {"mfa_secret_pending": ""},
+        },
+    )
+    return True
+
+
+def disable_mfa(username: str) -> None:
+    _maybe_init()
+    _collection().update_one(
+        {"username": username},
+        {
+            "$set": {"mfa_enabled": False, "updated_at": datetime.now(timezone.utc)},
+            "$unset": {"mfa_secret": "", "mfa_secret_pending": ""},
+        },
+    )
+
+
+def verify_mfa(user_doc: dict[str, Any], code: str) -> bool:
+    if not user_doc.get("mfa_enabled"):
+        return True  # MFA off -> no check needed
+    import pyotp
+    secret = user_doc.get("mfa_secret")
+    if not secret:
+        return False
+    return pyotp.TOTP(secret).verify(code, valid_window=1)

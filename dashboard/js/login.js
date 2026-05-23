@@ -33,6 +33,10 @@
         })
         .catch(() => { /* config-status optional */ });
 
+    const mfaField = document.getElementById("login-mfa-field");
+    const mfaEl    = document.getElementById("login-mfa");
+    let awaitingMfa = false;
+
     form.addEventListener("submit", async (e) => {
         e.preventDefault();
         errEl.hidden = true;
@@ -40,15 +44,32 @@
         submit.disabled = true;
         const oldLabel = submit.textContent;
         submit.textContent = "Signing in...";
+        const mfaCode = awaitingMfa ? (mfaEl.value || "").trim() : "";
         try {
-            await LG_AUTH.login(userEl.value, passEl.value);
+            await LG_AUTH.login(userEl.value, passEl.value, mfaCode);
             const next = new URLSearchParams(location.search).get("next") || "/";
             location.replace(next);
         } catch (err) {
-            errEl.textContent = err.message.includes("HTTP 401")
-                ? "Wrong username or password."
-                : `Login failed: ${err.message}`;
-            errEl.hidden = false;
+            if (err.code === "mfa_required") {
+                awaitingMfa = true;
+                mfaField.hidden = false;
+                mfaEl.required = true;
+                mfaEl.focus();
+                errEl.textContent = "Enter the 6-digit code from your authenticator app.";
+                errEl.hidden = false;
+                submit.disabled = false;
+                submit.textContent = oldLabel;
+                return;
+            }
+            if (err.code === "locked") {
+                errEl.textContent = "Account locked after repeated failures. Try again in up to 15 minutes.";
+                errEl.hidden = false;
+            } else {
+                errEl.textContent = err.message.includes("HTTP 401")
+                    ? (awaitingMfa ? "Wrong MFA code." : "Wrong username or password.")
+                    : `Login failed: ${err.message}`;
+                errEl.hidden = false;
+            }
             submit.disabled = false;
             submit.textContent = oldLabel;
         }

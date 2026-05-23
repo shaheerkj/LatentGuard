@@ -104,16 +104,31 @@ const LG_AUTH = (function () {
     }
 
     // POST credentials to /api/auth/login. Returns the parsed response on
-    // 200, throws on anything else. Caller (login page) handles the throw.
-    async function login(username, password) {
+    // 200. Throws on errors -- specifically a typed Error("mfa_required")
+    // when the server says the account has MFA enrolled, so the login page
+    // can flip into a second-stage TOTP prompt without losing the entered
+    // password.
+    async function login(username, password, mfaCode) {
+        const body = { username, password };
+        if (mfaCode) body.mfa_code = mfaCode;
         const res = await fetch(`${API_BASE}/api/auth/login`, {
             method: "POST",
             headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({ username, password }),
+            body: JSON.stringify(body),
         });
+        if (res.status === 412) {
+            const err = new Error("mfa_required");
+            err.code = "mfa_required";
+            throw err;
+        }
+        if (res.status === 423) {
+            const err = new Error("locked");
+            err.code = "locked";
+            throw err;
+        }
         if (!res.ok) {
-            const body = await res.text();
-            throw new Error(`HTTP ${res.status}: ${body.slice(0, 200) || "login failed"}`);
+            const txt = await res.text();
+            throw new Error(`HTTP ${res.status}: ${txt.slice(0, 200) || "login failed"}`);
         }
         const data = await res.json();
         save(data.token, data.expires_at, data.user, data.role);
