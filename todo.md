@@ -64,6 +64,46 @@ Grouped by viva-impact / effort. Cross-references in `documentation/` and `docs/
 
 ---
 
+## Research-paper roadmap
+
+Two paths to a paper out of this codebase, with effort + venue notes.
+
+### Path A — systems paper (the closed loop IS the contribution)
+
+Frame: **"LatentGuard: An Adaptive Dual-Layer WAF with Operator-Gated Pattern Mining for Continuous Rule Synthesis"**.
+~80% built; the gap is rigorous evaluation.
+
+- [ ] **A1. Comparative TPR/FPR over time.** Inject fresh attack classes weekly; measure how fast the mining loop produces rules that catch them vs a static-rule baseline (CRS alone).
+- [ ] **A2. Operator labour metric.** Fraction of mined candidates approved, time-from-attack-onset-to-rule-live.
+- [ ] **A3. Multi-app generalisation.** Run the stack against 2-3 upstreams (Juice Shop, DVWA, WebGoat); show the mining loop adapts without retraining the core engine.
+- [ ] **A4. Adversarial pressure test.** Generate evasion payloads (LLM-driven mutation + standard obfuscation); show recall holds.
+- [ ] **A5. Comparison vs commercial WAFs.** Same battery against ModSecurity-alone, AWS WAF (managed rules), Cloudflare free tier. Honest results table.
+
+Venue: ACSAC, RAID, DSN systems track, DIMVA. Effort ~2-3 weeks. Risk: low (system already exists).
+
+### Path B — ML-novelty paper. Pick ONE.
+
+- [ ] **B1. Per-shape contrastive autoencoder ⭐ recommended.** Supervised contrastive loss (benign pulled together, known attacks pushed apart) + one AE per (method, path-prefix) tuple with shape routing. Genuinely under-explored for WAF. ~2 weeks.
+- [ ] **B2. HTTP-BERT — masked language modelling on canonical requests ⭐⭐ highest ceiling.** Small Transformer encoder (4 layers, ~5M params) trained MLM-style on benign HTTP; anomaly = perplexity. Top-tier paper potential. ~3-4 weeks, GPU recommended.
+- [ ] **B3. Active learning + adversarial robustness.** Queue uncertain-band requests (consensus ~0.4-0.6) for HITL; fine-tune classifier head on operator labels. FGSM + LLM-mutated payloads for adversarial eval. Workshop / lower-tier conference. ~1.5 weeks.
+- [ ] **B4. Interpretable bottleneck via sparsity + concept attribution.** L1 sparsity on the 4-dim bottleneck; post-hoc correlate each dim with input features to label them. Explainability workshop. ~1 week.
+- [ ] **B5. Federated learning prototype.** Two LatentGuard instances FedAvg-ing AE weights via a coordinator; show convergence + no audit-log sharing. Very high novelty, high risk. ~3+ weeks. Recommend as future-work paragraph in Path A instead.
+
+### Recommended pick
+
+**A + B1 combined.** Systems paper backed by per-shape contrastive AE as the ML contribution. Strongest defensible story. ~3-4 weeks total.
+
+Implementation order if A+B1 is greenlit:
+- [ ] adversarial-eval harness (LLM/obfuscation mutator + recall-delta script)  — 2 days
+- [ ] per-shape AE infrastructure in `models.py` (shape clustering + router + per-shape thresholds + global fallback) — 3 days
+- [ ] contrastive-loss training option in `train_autoencoder.py` (--contrastive flag; collect labelled attack set from battery + audit overrides) — 2 days
+- [ ] `bench/` eval automation (bring stack up, fire attacks across a simulated month, dump CSV/JSON/matplotlib plots) — 3 days
+- [ ] baseline runs against ModSecurity-only + CRS-only configs — 2 days
+
+Total ~12 working days for an experimental section worth writing up.
+
+---
+
 ## Done (cumulative)
 
 - [x] M1 Reverse proxy + TLS (auto self-signed)
