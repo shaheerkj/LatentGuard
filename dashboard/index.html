@@ -156,6 +156,34 @@
 
         <!-- ====================== ANOMALY MODELS (M3) ======================= -->
         <section id="view-models" class="view">
+            <div class="card table-card" id="promotion-card">
+                <div class="card-header">
+                    <h2>Model promotion queue (M11)</h2>
+                    <span class="card-sub">Drift-driven candidate retrains land here for HITL approval before going live</span>
+                </div>
+                <div class="mine-controls">
+                    <button class="btn btn-primary" id="promotion-retrain-btn" type="button" data-role-required="model-op" hidden>Trigger candidate retrain</button>
+                    <span class="mine-status" id="promotion-status"></span>
+                </div>
+                <div class="table-wrap">
+                    <table>
+                        <thead>
+                            <tr>
+                                <th>Status</th>
+                                <th>Source</th>
+                                <th>Created</th>
+                                <th>Threshold</th>
+                                <th>Recon p95</th>
+                                <th>Samples</th>
+                                <th>Actions</th>
+                            </tr>
+                        </thead>
+                        <tbody id="promotion-tbody">
+                            <tr><td colspan="7" class="empty">No candidates yet. Drift detection or the manual button above will create one.</td></tr>
+                        </tbody>
+                    </table>
+                </div>
+            </div>
             <div class="card accuracy-card" id="accuracy-card">
                 <div class="card-header">
                     <h2>Model accuracy (operator-labelled)</h2>

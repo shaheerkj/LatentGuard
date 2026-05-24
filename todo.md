@@ -20,8 +20,8 @@ Grouped by viva-impact / effort. Cross-references in `documentation/` and `docs/
 - [x] **Automatic failover to ModSecurity-only mode** (REL-2) — operator force-toggle + global banner
 - [x] **Model accuracy panel** — running precision / recall / F1 + drop alert (FR-MON-1)
 - [x] **CEF / Syslog export of audit events** (SI-6)
-- [ ] **OpenAPI / Swagger polish on `/docs`** — descriptions + examples
-- [ ] **Auto-retrain on drift** (M11-full) — close the loop with a model-promotion HITL gate
+- [x] **OpenAPI / Swagger polish on `/docs`** — descriptions + tag groups + role-gating notes
+- [x] **Auto-retrain on drift** (M11-full) — closed the loop with a model-promotion HITL gate
 
 ---
 

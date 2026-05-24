@@ -62,6 +62,18 @@ services:
       # SYSLOG_HOST: "siem.example.com"
       # SYSLOG_PORT: "514"
       SIEM_LOG_PATH: "/app/models/siem.log"
+
+      # M11 full: auto-retrain on drift. When AUTO_RETRAIN_ON_DRIFT=true,
+      # a background watcher polls /api/models/drift every
+      # DRIFT_CHECK_INTERVAL_S seconds; after 3 consecutive drift hits it
+      # spawns a CANDIDATE retrain that writes to autoencoder.candidate.*
+      # files. An operator (admin / ml-engineer) then approves from the
+      # dashboard's Models tab, which atomically promotes the candidate
+      # to live + reloads the in-memory model store. Default: disabled
+      # so the demo is deterministic.
+      AUTO_RETRAIN_ON_DRIFT: "false"
+      DRIFT_CHECK_INTERVAL_S: "900"
+      AUTO_RETRAIN_AUGMENT_MONGO: "true"
       SIEM_INTERVAL_SECONDS: "5"
       SIEM_BATCH: "200"
 

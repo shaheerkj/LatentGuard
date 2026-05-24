@@ -1347,3 +1347,7 @@ tr:hover .method-tag {
     font-size: 12px;
     margin: 0;
 }
+
+/* ---------- M11-full promotion queue ---------- */
+.status-training { background: rgba(99, 102, 241, 0.20); color: #A5B4FC; }
+.status-failed   { background: rgba(239, 68, 68, 0.18); color: #F87171; }

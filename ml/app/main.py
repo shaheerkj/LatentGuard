@@ -109,6 +109,14 @@ def _warmup() -> None:
     except Exception as exc:
         logger.warning("siem worker not started: %s", exc)
 
+    # M11 full: drift watcher that spawns candidate retrains. No-op
+    # unless AUTO_RETRAIN_ON_DRIFT=true is set in env.
+    try:
+        from . import model_promotion
+        model_promotion.start_in_background(asyncio.get_event_loop())
+    except Exception as exc:
+        logger.warning("drift watcher not started: %s", exc)
+
 
 @app.get("/healthz", response_model=HealthResponse)
 def healthz() -> HealthResponse:

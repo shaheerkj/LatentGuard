@@ -971,6 +971,85 @@ async function refreshThreatIntel() {
         : sources.map(u => `<span class="ti-source" title="${escapeHtml(u)}">${escapeHtml(shortenURL(u))}</span>`).join("");
 }
 
+// M11-full: model-promotion HITL queue. Shows pending / live / rejected
+// candidates with the AE training-stats delta vs the live model. Approve
+// runs an atomic file swap + in-memory reload; reject deletes the
+// .candidate.* artefacts without touching the live model.
+async function refreshPromotion() {
+    const tbody = document.getElementById("promotion-tbody");
+    if (!tbody) return;
+    const data = await fetchJSON("/api/models/candidates");
+    if (!data) return;
+    const rows = data.rows || [];
+    if (rows.length === 0) {
+        tbody.innerHTML = `<tr><td colspan="7" class="empty">No candidates yet. Drift detection or the manual button above will create one.</td></tr>`;
+        return;
+    }
+    tbody.innerHTML = rows.map(r => {
+        const s = r.stats || {};
+        const thr = s.threshold != null ? Number(s.threshold).toFixed(4) : "-";
+        const p95 = s.recon_error_p95 != null ? Number(s.recon_error_p95).toFixed(4) : "-";
+        const samples = s.samples != null ? s.samples : "-";
+        const actions = [];
+        if (r.status === "pending" && LG_AUTH.canManageModels()) {
+            actions.push(`<button class="btn btn-sm btn-primary" data-promo-act="approve" data-id="${r._id}">Promote to live</button>`);
+            actions.push(`<button class="btn btn-sm btn-danger" data-promo-act="reject" data-id="${r._id}">Reject</button>`);
+        } else if (r.status === "training") {
+            actions.push(`<span class="muted">training...</span>`);
+        }
+        return `<tr>
+            <td><span class="status-pill status-${escapeHtml(r.status)}">${escapeHtml(r.status)}</span></td>
+            <td>${escapeHtml(r.source || "-")}</td>
+            <td title="${escapeHtml(r.created_at || "")}">${relativeTime(r.created_at)}</td>
+            <td><code>${thr}</code></td>
+            <td><code>${p95}</code></td>
+            <td>${samples}</td>
+            <td class="actions-cell">${actions.join(" ")}</td>
+        </tr>`;
+    }).join("");
+}
+
+// Manual retrain trigger.
+const _promoRetrain = document.getElementById("promotion-retrain-btn");
+if (_promoRetrain) {
+    if (LG_AUTH.canManageModels()) _promoRetrain.hidden = false;
+    _promoRetrain.addEventListener("click", async () => {
+        const status = document.getElementById("promotion-status");
+        _promoRetrain.disabled = true;
+        if (status) status.textContent = "spawning...";
+        const res = await fetchJSON("/api/models/candidates/retrain", { method: "POST" });
+        _promoRetrain.disabled = false;
+        if (!res) { if (status) status.textContent = "failed -- see console"; return; }
+        if (res.existing) {
+            if (status) status.textContent = "a pending candidate already exists -- approve/reject it first";
+        } else {
+            if (status) status.textContent = `training kicked off (id: ${res.candidate_id})`;
+        }
+        refreshPromotion();
+    });
+}
+
+const _promoTbody = document.getElementById("promotion-tbody");
+if (_promoTbody) {
+    _promoTbody.addEventListener("click", async (e) => {
+        const btn = e.target.closest("[data-promo-act]");
+        if (!btn) return;
+        const id = btn.dataset.id;
+        const act = btn.dataset.promoAct;
+        if (act === "approve" && !confirm("Promote this candidate to live? The current model is replaced atomically and the in-memory store reloads.")) return;
+        if (act === "reject" && !confirm("Reject this candidate? The .candidate.* artefacts will be deleted; the live model is untouched.")) return;
+        btn.disabled = true;
+        const res = await fetchJSON(`/api/models/candidates/${id}/${act}`, {
+            method: "POST",
+            headers: {"Content-Type": "application/json"},
+            body: JSON.stringify({}),
+        });
+        btn.disabled = false;
+        if (!res) alert(`${act} failed -- see console`);
+        refreshPromotion();
+    });
+}
+
 // SI-6: SIEM forwarder pill. Off when no destination configured;
 // otherwise shows the rolling event count + last error if any.
 async function refreshSiem() {
@@ -1111,6 +1190,7 @@ async function tick() {
         refreshLogs(), refreshRules(),
         refreshModels(), refreshDecisions(), refreshThreatIntel(), refreshDrift(),
         refreshBruteForce(), refreshAeLoss(), refreshAccuracy(), refreshSiem(),
+        refreshPromotion(),
     ];
     if (LG_AUTH.canManageUsers()) calls.push(refreshUsers());
     await Promise.all(calls);

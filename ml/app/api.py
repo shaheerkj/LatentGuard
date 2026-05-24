@@ -782,6 +782,54 @@ def models_accuracy(
         raise HTTPException(status_code=503, detail=f"storage error: {exc}") from exc
 
 
+@router.get("/models/candidates", tags=["models"], summary="M11-full model-promotion queue (pending / live / rejected / failed)")
+def models_candidates_list() -> dict[str, Any]:
+    from . import model_promotion
+    rows = model_promotion.serialize_candidates(model_promotion.list_candidates())
+    return {"rows": rows, "total": len(rows)}
+
+
+@router.post(
+    "/models/candidates/retrain",
+    tags=["models"],
+    summary="Manually trigger a candidate retrain (admin / ml-engineer). Auto-drift uses the same path with source='auto-drift'.",
+    dependencies=[Depends(require_role(*Role.MODEL_OPERATORS))],
+)
+async def models_candidates_retrain() -> dict[str, Any]:
+    from . import model_promotion
+    return await model_promotion.trigger_candidate_retrain(source="manual")
+
+
+@router.post(
+    "/models/candidates/{candidate_id}/approve",
+    tags=["models"],
+    summary="Promote candidate to live (atomic file swap + in-memory reload). Admin / ml-engineer only.",
+    dependencies=[Depends(require_role(*Role.MODEL_OPERATORS))],
+)
+def models_candidates_approve(candidate_id: str, request: Request) -> dict[str, Any]:
+    from . import model_promotion
+    actor = _request_actor(request)
+    try:
+        return model_promotion.promote(candidate_id, actor=actor) or {}
+    except FileNotFoundError as exc:
+        raise HTTPException(status_code=409, detail=str(exc)) from exc
+
+
+@router.post(
+    "/models/candidates/{candidate_id}/reject",
+    tags=["models"],
+    summary="Reject a candidate -- deletes the .candidate.* artifacts and leaves the live model untouched.",
+    dependencies=[Depends(require_role(*Role.MODEL_OPERATORS))],
+)
+def models_candidates_reject(
+    candidate_id: str, request: Request, payload: TransitionPayload | None = None,
+) -> dict[str, Any]:
+    from . import model_promotion
+    actor = _request_actor(request)
+    note = (payload.note if payload else None) if payload else None
+    return model_promotion.reject(candidate_id, actor=actor, note=note) or {}
+
+
 @router.get("/models/drift", tags=["models"], summary="M11 anomaly-score drift z-score over a rolling window vs baseline")
 def models_drift(
     window_min: int = Query(default=60, ge=5, le=1440),

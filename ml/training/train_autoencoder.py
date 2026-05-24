@@ -77,6 +77,9 @@ def main() -> int:
                    help="User-Agent filter for Mongo augment rows")
     p.add_argument("--mongo-limit", type=int, default=None,
                    help="cap Mongo augment rows (default: all matching)")
+    p.add_argument("--candidate", action="store_true",
+                   help="write to autoencoder.candidate.* paths instead of the live "
+                        "files (M11 HITL gate). The promoter renames on approve.")
     args = p.parse_args()
 
     print(f"[autoencoder] loading benign split (max={args.max}) ...", flush=True)
@@ -153,9 +156,18 @@ def main() -> int:
     threshold = float(np.percentile(errors, args.threshold_pct))
 
     MODELS_DIR.mkdir(parents=True, exist_ok=True)
-    model_path = MODELS_DIR / "autoencoder.keras"
-    scaler_path = MODELS_DIR / "autoencoder_scaler.pkl"
-    meta_path = MODELS_DIR / "autoencoder.json"
+    # M11 full: --candidate writes to a parallel set of paths so the
+    # operator can review stats before promoting. The promoter (see
+    # ml/app/rulegen/.. no, ml/app/model_promotion.py) renames these
+    # to the live paths atomically on approve.
+    if getattr(args, "candidate", False):
+        model_path = MODELS_DIR / "autoencoder.candidate.keras"
+        scaler_path = MODELS_DIR / "autoencoder_scaler.candidate.pkl"
+        meta_path = MODELS_DIR / "autoencoder.candidate.json"
+    else:
+        model_path = MODELS_DIR / "autoencoder.keras"
+        scaler_path = MODELS_DIR / "autoencoder_scaler.pkl"
+        meta_path = MODELS_DIR / "autoencoder.json"
 
     model.save(model_path)
     import joblib
