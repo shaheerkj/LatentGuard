@@ -45,24 +45,42 @@ Read `docs/architecture.md` for the full picture.
 
 ---
 
-## Module status (10.5 / 11 done)
+## Module status (11 / 11 + extras)
 
 | # | Module | Status |
 |---|---|---|
 | 1 | Reverse proxy + TLS | DONE |
-| 2 | Normalisation + features | DONE |
-| 3 | Rule engine + threat-intel | DONE |
+| 2 | Normalisation + features (11 features incl. 3-/4-gram entropy + unique ratio) | DONE |
+| 3 | Rule engine + threat-intel (Spamhaus, hot-reload) | DONE |
 | 4 | Autoencoder | DONE |
 | 5 | HDBSCAN cluster validation | DONE |
-| 6 | Multi-signal consensus | DONE (binary verdict, no review band) |
-| 7 | Audit log / Mongo | DONE |
-| 8 | FP-Growth attack-pattern miner | DONE — `ml/app/mining/` |
-| 9 | Rule synthesis orchestrator | DONE-stub — `ml/app/rulegen/orchestrator.py` (template renderer; LLM_PROVIDER=openai/anthropic deferred) |
-| 10 | HITL rule approval + promotion | DONE — rules tab + `/api/rules/candidates/*` + proxy `/__reload` |
-| 11 | Continuous learning / drift watch | PARTIAL — AE anomaly-score drift z-score (`/api/models/drift`); retrain trigger deferred |
+| 6 | Multi-signal consensus (binary verdict; no per-request review) | DONE |
+| 7 | Audit log / Mongo (+ 90-day TTL) | DONE |
+| 8 | FP-Growth attack-pattern miner — `ml/app/mining/` | DONE |
+| 9 | Rule synthesis orchestrator — `ml/app/rulegen/orchestrator.py` (stub + Gemini provider wired; OpenAI/Anthropic stubs) | DONE |
+| 10 | HITL rule approval + promotion — Rules tab + `/api/rules/candidates/*` + proxy `/__reload` | DONE |
+| 11 | Continuous learning / drift watch + HITL **model**-promotion gate — `ml/app/model_promotion.py` + `/api/models/candidates/*` | DONE |
+
+**Beyond the 11 SRS modules (this session):**
+- Auth: JWT (HS256+bcrypt) shared between ML + proxy
+- **RBAC**: 4 roles (admin / security-operator / ml-engineer / auditor), users collection, `require_role` dependency, proxy `MiddlewareRoles`, role-aware dashboard (greyed-out cards + READ ONLY badge per role)
+- **MFA**: TOTP via pyotp, self-service enrollment, login flow with 412 second-stage
+- **Account lockout** (SEC-4): 5 fails → 15 min; **Brute-force IP watch** (SEC-10): >10 fails / 5 min triggers alert
+- **Decision override** + audit (FR4.5) on Request Log drawer
+- **Model accuracy** panel (FR-MON-1): P/R/F1/FPR from operator overrides
+- **CEF/Syslog export** (SI-6): background tail of audit log → CEF over UDP/file
+- **Sandbox-test** (FR5.5): preview which past requests a candidate rule would match
+- **Live training-loss chart** (FR7.4) during retrain
+- **Safe-mode banner** (REL-2): operator can force on; global red banner across every tab
+- **OpenAPI polish**: tag groups, summaries, role notes at `/docs` and `/redoc`
+- **Dashboard topbar v2**: one rollup health pill + popover (was 6 pills); compact user chip
+- **Char n-gram features** (3- and 4-grams) with Go ↔ Python parity test
 
 Current branch: **`fyp-II`** (off `main`). Branch conventions and the
 submission-snapshot `fyp-1` branch are explained in `docs/preferences.md`.
+
+`todo.md` at repo root tracks the SRS/SDS backlog with tickboxes
+including a "Research-paper roadmap" section at the bottom.
 
 ---
 
@@ -105,24 +123,52 @@ search the SRS / SDS markdown to confirm the spec.
 Maintain this manually when you commit — it's the fastest answer to
 "what happened last session?".
 
-- *(pending commit)* — M8 FP-Growth miner (`ml/app/mining/`), M9 stub
-  orchestrator (`ml/app/rulegen/orchestrator.py`, LLM_PROVIDER=stub
-  default; openai/anthropic hooks are stubs awaiting a key), M10
-  candidate-rules approval UI (rules tab: chips filter, mine controls,
-  approve/reject/edit/expire/delete; `/api/rules/candidates/*` endpoints
-  + `rules_queue` Mongo state machine), promoter writes approved rules
-  to shared `lg-generated-rules` volume mounted on both ml + proxy at
-  `/etc/coraza/rules/lg-generated/` and POSTs `/__reload` (JWT-gated via
-  shared secret + `auth.issue_token('ml-service')`) so Coraza
-  `Engine.Reload()` picks up the new rules. M11-partial: AE drift watch
-  `/api/models/drift` (z-score window vs baseline) + topbar pill.
-  Default credentials swapped to `shaheerkj / v59q1rg8EOfykTXUUp1b`
-  (20-char alnum); login page hint removed.
-- `5a9843d` — operator-panel auth: ML-side JWT login (bcrypt + HS256)
-  gating `/api/*`, shared JWT_SECRET so the Go proxy verifies the
-  same tokens on `/__threatintel` and `/__safe-mode`, dashboard login
-  page + token-aware `fetch` wrapper, sign-out pill in the topbar.
-  `/healthz` and `/__healthz` stay public for docker healthchecks.
+- `751772e` — dashboard: topbar v2 (one rollup health pill + popover; user chip
+  with role badge + signout icon); role-strip under topbar; greyed-out cards
+  with READ ONLY badge for roles that can't mutate the contents.
+- `0429824` — high-5 / M11 full: auto-retrain on drift + HITL **model**
+  promotion gate. `train_autoencoder.py --candidate` writes to
+  `.candidate.*` files; `ml/app/model_promotion.py` handles the state
+  machine (`training → pending → live` / `rejected` / `failed`); drift
+  watcher background task auto-fires retrains when
+  `AUTO_RETRAIN_ON_DRIFT=true`.
+- `7d8890d` — high-4: OpenAPI / Swagger polish on `/docs` + `/redoc`.
+- `592d967` — high-3: SIEM export in CEF over syslog UDP + file
+  (`ml/app/siem.py`); env: `SYSLOG_HOST`/`SIEM_LOG_PATH`.
+- `6c6ee9c` — high-2: model accuracy panel from operator overrides
+  (`/api/models/accuracy`, FR-MON-1).
+- `8560dfe` — high-1: operator-controllable safe-mode + global red
+  banner (REL-2); `SafeMode.SetForced` survives the heartbeat.
+- `e7e2378` — #1: Gemini Flash provider for M9
+  (`ml/app/rulegen/llm_gemini.py`); falls back to stub when
+  `GEMINI_API_KEY` missing. (User has no key yet; running in stub mode.)
+- `ad2bf1a` — #2: sandbox-test (FR5.5) — `/api/rules/candidates/{id}/preview`
+  replays the candidate's pattern items against recent audit rows; UI
+  shows "would NEWLY block" rows in green.
+- `a8a13a3` — #4: live training-loss chart (FR7.4) on the Anomaly Models
+  tab; trainer writes `models/autoencoder.progress.jsonl`.
+- `9ff3845` — #3: MFA (TOTP, pyotp) + 5-fail account lockout (SEC-4) +
+  brute-force IP alerts (SEC-10).
+- `6a2ae89` — #5: decision override + reason audit (FR4.5) on the
+  Request Log drawer.
+- `d0b5db8` — char n-gram features (3 + 4 grams); feature vector
+  7 → 11; Go ↔ Python parity test in
+  `proxy/internal/normalizer/normalizer_test.go`. Stale models pad/trunc
+  with a one-time warning until retrain.
+- `8782d2c` — RBAC: 4 roles + `users` collection + Users tab
+  + `require_role` FastAPI dep + proxy `MiddlewareRoles` + audit
+  `actor(role)` strings.
+- `efe52c7` — quick wins: 90-day TTL on `requests` (`AUDIT_RETENTION_DAYS`),
+  pin OWASP CRS v4.7.0 via `proxy/rules/90-crs/VERSION` + Dockerfile
+  comment, copy-as-curl button on the audit-log drawer.
+- `12722b6` — Phase B landing on `fyp-II`: M8 FP-Growth miner,
+  M9 stub orchestrator, M10 approval UI + promoter + `/__reload`,
+  M11-partial drift watch.
+- `5a9843d` — operator-panel auth: ML JWT (bcrypt + HS256), shared
+  secret with proxy; dashboard login page + token-aware fetch wrapper.
+
+PR #3 merged `fyp-II` into `main` after `5a9843d`; everything above
+this line lives on `fyp-II` and is unpushed at time of writing.
 - `c5d0283` — extract SDS docx to markdown + point CLAUDE.md at
   fyp-documents/.
 - `9b8b984` — docs split into `docs/`, CLAUDE.md slimmed 376 → 119 lines.

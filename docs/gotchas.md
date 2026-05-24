@@ -347,3 +347,57 @@ Numbering is preserved from the historical CLAUDE.md so cross-references
     already been url-decoded, so non-ASCII in practice arrives
     only when an attacker is deliberately probing UTF-8 evasion,
     which is itself a useful signal.
+
+37. **`[INFRA]` Container ages lie about "this is the current build".**
+    `docker ps` shows `Up 16 hours` for `latentguard-ml` and
+    `latentguard-proxy` is the FIRST thing future Claude will see, and
+    will assume they have the latest code. They don't unless you've
+    run `docker compose ... up -d --build ml proxy` since the last
+    code change. Before reasoning about behaviour, ALWAYS rebuild and
+    confirm the container age dropped to seconds. Surfaced when the
+    operator hit "Run miner" and got a 404 from a 16-hour-old image
+    that didn't have the M8 endpoints yet.
+
+38. **`[ML]` Lazy import discipline matters in `model_promotion.py`.**
+    The drift watcher background task in `ml/app/model_promotion.py`
+    imports `models_drift` from `ml/app/api.py` -- but only INSIDE the
+    coroutine, not at module top. If you hoist it to a top-level
+    import you create a circular import (api -> model_promotion ->
+    api). Same pattern is used by `siem.py::start_in_background`
+    importing `app.version` only inside the worker.
+
+39. **`[ML]` The `users` collection has only-active-admin guards on
+    update + delete.** `auth_router.users_update` and `users_delete`
+    refuse to demote / deactivate / delete the last active admin
+    (returns 409). This is to prevent a deployment from locking itself
+    out by mass-disabling. If you need to *intentionally* lock out the
+    last admin (e.g. for a tenant-handover scenario), you'd have to
+    create another admin first, then disable the old one. Documented
+    behaviour; do not "fix" by removing the guard.
+
+40. **`[INFRA]` The dashboard is an nginx volume mount of `dashboard/`.**
+    Edits to `dashboard/index.html`, `dashboard/js/*.js`, or
+    `dashboard/assets/style.css` go live on the next hard-refresh --
+    no rebuild needed. But ensure the browser DOES hard-refresh
+    (Ctrl+Shift+R / Cmd+Shift+R) because the JS is aggressively
+    cached. Several "I made the change but the dashboard didn't
+    update" moments came from this.
+
+41. **`[DESIGN]` SafeMode now has THREE states, not two.**
+    `proxy/internal/pipeline/pipeline.go::SafeMode` carries
+    `(active, forced, reason, since)`. Heartbeat-driven transitions
+    go through `SetAuto`, which is a NO-OP when `forced=true`. The
+    operator endpoint POST /__safe-mode uses `SetForced`. Don't
+    grep for `safe.Set(true)` and assume it's the whole story --
+    the legacy `Set(b)` shortcut routes to SetAuto for back-compat
+    with the original tests.
+
+42. **`[ML]` The audit log's `overrides[]` array is the ground truth
+    for `/api/models/accuracy`.** Operator-supplied decision overrides
+    (FR4.5) are stored as `{verdict, reason, actor, at}` objects
+    pushed onto each request's `overrides` array. The accuracy
+    computation in `api.py::models_accuracy` treats the latest
+    override as the true label, defaults to `final_action` when
+    no override exists. This is weak supervision -- a future
+    auto-FP-correction module (todo.md) should feed these into
+    the next benign training cycle.

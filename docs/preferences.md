@@ -5,19 +5,18 @@ fuller explanation.
 
 ## Branches
 
-- **`main`** — live trunk. Carries the full Phase A ML pipeline
-  (M4+M5+M6+HTTPS+dashboard rework) with the DVWA upstream. Frozen for
-  FYP-II — no new work lands here directly. Never push to `origin/main`
-  without explicit user approval.
+- **`main`** — live trunk. **Now carries the full FYP-II 70 % snapshot**
+  after PR #3 (merge commit `4ca4dcb`, 2026-05-24) brought `fyp-II` up
+  to `937dc72` in. **`main` is hands-off again** — no direct work
+  lands here. New work continues on `fyp-II`; future stable cuts will
+  be merged in via PR. Never push to `origin/main` without explicit
+  user approval.
 
 - **`fyp-II`** (created 2026-05-22, off `main`) — **the FYP-II working
-  branch**. Swaps DVWA → OWASP Juice Shop, adds
-  `datasets/crawl_juiceshop_benign.py`, retrains the AE/HDBSCAN on Juice
-  Shop benign traffic, ships threat-intel feeds + UI refresh + binary
-  verdict. Same WAF code as `main` for the parts that didn't change. All
-  Phase A/B/C/D work for FYP-II lands here (or in `feature/fyp-ii-*` topic
-  branches off this) and gets merged back into `fyp-II` once verified.
-  Don't merge back to `main` until FYP-II is delivered.
+  branch**. After the 2026-05-24 merge to main, this is the
+  active-development branch and is N commits AHEAD of `origin/main`.
+  All new feature work lands here. The user controls when the next
+  PR-merge to `main` happens.
 
 - **`fyp-1`** (created 2026-04-30, commit `b219548`, on `origin`) —
   **the 30 % submission snapshot**. Same code as `main` but with
@@ -77,8 +76,17 @@ fuller explanation.
 - **Ask before risky actions** (force push, branch deletion, dropping
   containers with named volumes, anything that touches `main`).
 
-- **FYP-II must stay off `main`** until the user says otherwise —
-  protects the 30 % submission.
+- **`main` is hands-off; only merge to it via an explicit PR the user
+  asks for.** After PR #3 (2026-05-24) it carries the FYP-II 70 %
+  snapshot. New work continues on `fyp-II`; the user calls the next
+  PR-to-main moment.
+
+- **Use a merge commit (no fast-forward, no squash) when merging
+  `fyp-II` → `main`.** Squash destroys per-commit history; rebase
+  rewrites every hash and orphans `origin/fyp-II`. `git merge --no-ff`
+  preserves the full branch shape and gives a single revertible anchor
+  commit on `main`. (Established as a hard rule on 2026-05-24 when the
+  user asked which option was safest.)
 
 - **Do not mock the ML/database in integration tests** — the value is
   end-to-end behaviour.

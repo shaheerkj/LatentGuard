@@ -5,7 +5,63 @@ should reproduce if you follow the re-verify recipe. Listed newest first.
 
 ---
 
-## Current head — fyp-II (2026-05-22, post review-removal + UI refresh)
+## Current head — fyp-II @ `751772e` (2026-05-24, post topbar-v2 + role-visibility refresh)
+
+Status of the stack after the most recent rebuild on this branch.
+`fyp-II` is 11 commits ahead of `origin/fyp-II` and 14 commits ahead of
+`main` (PR #3 landed up to `5a9843d`; everything since is unpushed).
+
+**Stack:** 5 containers (`latentguard-{mongo,juiceshop,ml,proxy,dashboard}`).
+`infra-ml` rebuilt with `pyotp` + `pyjwt` + the new RBAC / mining /
+rulegen / siem / model_promotion modules. `infra-proxy` rebuilt with
+the new `SafeMode` state + `MiddlewareRoles` + `/__reload` endpoint.
+
+**Smoke-tested live endpoints (auth as `shaheerkj/v59q1rg8EOfykTXUUp1b`):**
+- `POST /api/auth/login` → 200, returns `{token, role:"admin", mfa_enabled:false, ...}`
+- `GET /api/models/accuracy` → 200, 4736 rows / 168h, P=1.0 R=1.0 F1=1.0 FPR=0 (no overrides yet → trivial baseline)
+- `GET /api/siem/status` → 200, file forwarder active → `/app/models/siem.log`
+- `GET /api/models/candidates` → 200, empty (no drift retrains)
+- `GET /__safe-mode` → `{safe_mode:false, forced:false, reason:"auto: ML heartbeat recovered"}`
+- `GET /api/auth/alerts/brute-force` → empty, threshold 10
+- `GET /api/models/drift` → warm-up (n=0 on fresh boot)
+- `GET /api/auth/me` → `{user:"shaheerkj", role:"admin", mfa_enabled:false}`
+- dashboard `:3000/` → 200
+
+**Module status:** 11/11 SRS modules done. See `CLAUDE.md` for the
+table; `docs/architecture.md` has the subsystems-beyond-SRS table.
+
+**Re-verify:**
+```bash
+git checkout fyp-II
+docker compose -f infra/docker-compose.yml up -d --build ml proxy
+# wait for: docker logs latentguard-ml | grep "Application startup complete"
+TOKEN=$(curl -s -X POST http://localhost:8000/api/auth/login \
+    -H 'Content-Type: application/json' \
+    -d '{"username":"shaheerkj","password":"v59q1rg8EOfykTXUUp1b"}' \
+    | python -c "import json,sys; print(json.load(sys.stdin)['token'])")
+for ep in /api/models/accuracy /api/siem/status /api/models/candidates \
+          /api/auth/alerts/brute-force /api/models/drift /api/auth/me; do
+    echo "--- $ep:"
+    curl -s "http://localhost:8000$ep" -H "Authorization: Bearer $TOKEN" | head -c 200
+    echo
+done
+curl -s http://localhost:8080/__safe-mode -H "Authorization: Bearer $TOKEN"
+```
+
+Detection numbers from previous head (`d0b5db8`, n-gram features) still
+apply since neither n-grams nor any later commit changed the attack
+battery / training data. Last measured:
+- 6/6 attack classes blocked end-to-end
+- 106/127 (83.5 %) on the 141-payload red-team battery
+- 12/12 benign Juice Shop flows pass (0 % FPR)
+- threat-intel: ~1,630 CIDRs loaded; 12 h refresh.
+
+Run `attacks/run_attacks.py --proxy http://127.0.0.1:8080 --sleep-ms 3`
+to re-measure.
+
+---
+
+## fyp-II @ `45b735a` (2026-05-22, post review-removal + UI refresh)
 
 Status of the dashboard + behaviour after this session's commits.
 

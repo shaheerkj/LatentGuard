@@ -19,13 +19,29 @@ learning.
 ## Data flow
 
 ```
-client ──► Go proxy (Coraza, HTTP+HTTPS)  ──►  upstream app (Juice Shop on fyp-II / DVWA on main)
+client ──► Go proxy (Coraza, HTTP+HTTPS) ──► upstream app (Juice Shop on fyp-II)
+              │       │
+              │       └─ /score ─► FastAPI ML service (autoencoder + HDBSCAN + consensus)
+              │                          │
+              │                          ├─► Mongo: rules_queue (M10 candidates), model_candidates (M11 HITL), users, login_attempts, ml_config
+              │                          ├─► LLM provider (M9; LLM_PROVIDER=stub|gemini|openai|anthropic)
+              │                          ├─► CEF/Syslog forwarder (SI-6 background task)
+              │                          └─► drift watcher (auto-fires candidate retrains when AUTO_RETRAIN_ON_DRIFT=true)
               │
-              ├─► FastAPI ML service  (autoencoder + HDBSCAN + consensus)
-              │         │
-              │         └─► LLM API (Groq / OpenRouter — Module 9, not yet built)
-              └─► Mongo audit log ◄── dashboard (read-only) & ML training jobs
+              ├─► Mongo: requests audit log (90-day TTL) ◄── dashboard polling + ML training/mining
+              │
+              └─◄ POST /__reload (JWT-signed by ML's auth.issue_token("ml-service"))
+                  after M10 promotes a rule -> Coraza Engine.Reload()
+
+dashboard (nginx, static HTML/JS) ──► /api/auth/login on ML ─► JWT (HS256, shared secret with proxy)
+                                  │
+                                  ├─► every /api/* on ML  (require_auth + require_role per route)
+                                  └─► every /__* on proxy (auth.MiddlewareRoles)
 ```
+
+Shared docker volume `lg-generated-rules` mounted on both `ml` and
+`proxy` at `/etc/coraza/rules/lg-generated/` is where M10's promoter
+writes `lg-<rule_id>.conf` files that Coraza picks up on `/__reload`.
 
 ## Module table (SRS section 1.7 — canonical numbering)
 
@@ -42,10 +58,31 @@ module list).
 | 5 | Latent-Space Clustering Validation (HDBSCAN) | DONE | `min_cluster_size=20`, `min_samples=5`, fit on AE bottleneck. `approximate_predict` returns label + soft strength → outlier_score = 1 - strength. |
 | 6 | Multi-Signal Consensus Decision Engine | DONE | 3 modes (Weighted / Majority / Strict), per-model weights summing to 100, decision threshold default 0.65. Config persisted to Mongo `ml_config`. Reasons attached per decision. **Verdict is binary (allow/block)** — no per-request "review" band (see gotchas #27). Local proxy reducer kept as safe-mode fallback when ML unreachable. |
 | 7 | Logging, Explainability, Data Storage | DONE | `proxy/internal/storage/mongo.go` writes per-request audit to `latentguard.requests` (best-effort goroutine append). Per-request explainability lives in the `reasons` array. The same collection is the training/retraining source for M4/M5. |
-| 8 | Attack Pattern Mining (FP-Growth) | not started | FYP-II Phase B. |
-| 9 | LLM-Assisted Rule Generation | not started | FYP-II Phase B. Real LLM API call (Groq / OpenRouter), not template-only. |
-| 10 | Human-in-the-Loop Rule Validation | not started | FYP-II Phase C. **HITL lives on RULES, not individual requests** (gotcha #27). Versioned rule store + hot-reload into Coraza (foundation `Engine.Reload()` already shipped). |
-| 11 | Continuous Learning Loop | not started | FYP-II Phase D. Scheduled drift-watch → retrain trigger; not true online learning. |
+| 8 | Attack Pattern Mining (FP-Growth) | DONE | `ml/app/mining/miner.py`. mlxtend's fpgrowth over the audit log; alphabet = (path prefix, method, fired rule IDs, /24, AE/HDBSCAN high-signal bands, body-present). Returns ranked itemsets with support + sample request_ids. Lazy import so cold start doesn't pay for mlxtend. |
+| 9 | LLM-Assisted Rule Generation | DONE | `ml/app/rulegen/orchestrator.py` + `ml/app/rulegen/llm_gemini.py`. Pluggable provider dispatch via `LLM_PROVIDER` env (`stub` default; `gemini` wired with httpx + free-tier prompt). OpenAI/Anthropic stubs fall back to stub when key missing. Renderer outputs chained `SecRule` blocks with reserved 2000000+ band IDs. |
+| 10 | Human-in-the-Loop Rule Validation | DONE | `ml/app/rulegen/store.py` (state machine) + `ml/app/rulegen/promoter.py` (disk + hot-reload). State: pending → approved → live → expired (+ rejected). Promoter rewrites `lg-generated/` on every promote/expire, POSTs proxy `/__reload`. Edit-history audit trail per rule with `actor(role)` strings. Sandbox-test endpoint `/api/rules/candidates/{id}/preview` replays the pattern against recent audit rows to show what the rule would catch BEFORE approval (FR5.5). |
+| 11 | Continuous Learning Loop | DONE | `ml/app/model_promotion.py`. Drift watcher (background asyncio task) polls `/api/models/drift`; on K consecutive hits AND no pending candidate, spawns `train_autoencoder --candidate`. Files land as `autoencoder.candidate.*`; operator reviews stats on the dashboard's Model Promotion Queue card and approves → atomic `shutil.move` + in-memory store reload. Auto-trigger gated by `AUTO_RETRAIN_ON_DRIFT=true` env. |
+
+## Subsystems beyond the SRS 11
+
+These accreted during FYP-II development to support real operator
+workflows the SDS implied but didn't number.
+
+| Subsystem | Where | Notes |
+|---|---|---|
+| Auth (JWT HS256 + bcrypt) | `ml/app/auth.py`, `proxy/internal/auth/auth.go` | Shared `JWT_SECRET`; iss=`latentguard`; default TTL 12h. Dashboard signs in once → one token authorises both backends. `auth.issue_token("ml-service")` mints service tokens the proxy verifier accepts (used by the M10 promoter to call `/__reload`). |
+| RBAC (4 roles) | `ml/app/users.py`, `ml/app/auth_router.py`, `proxy/internal/auth/auth.go::MiddlewareRoles` | admin / security-operator / ml-engineer / auditor. `users` Mongo collection. `require_role(*roles)` FastAPI dep on each route. Audit log records `actor(role)` strings on every privileged action. Bootstrap admin from env (`BOOTSTRAP_ADMIN_*` or legacy `ADMIN_*`). Only-active-admin guards prevent deployment lockout. |
+| MFA (TOTP) | `ml/app/users.py` (generate/enable/disable/verify), `auth_router.py` (login 412 path) | pyotp. Self-service enrollment from Users tab. Login flow returns HTTP 412 when MFA enrolled but no code provided so dashboard can two-stage prompt. Disabling MFA demands password re-confirmation. |
+| Account lockout (SEC-4) | `ml/app/users.py` | 5 fails → `locked_until = now + 15 min`. Lock check happens BEFORE bcrypt so locked accounts can't be used as a password oracle. Reset on success. |
+| Brute-force watch (SEC-10) | `ml/app/users.py::record_ip_attempt`, `brute_force_alerts` | TTL-indexed `login_attempts` collection. `>10` failed logins from one IP / 5min → alert. Surfaced on dashboard Users tab + the health rollup pill. |
+| Decision override (FR4.5) | `ml/app/api.py::post_log_override` | Operator (admin/security-operator) flags a past verdict as wrong with a reason. Pushed onto the audit doc's `overrides` array; does NOT replay against the live engine. Feeds the accuracy calculator + future auto-FP correction. |
+| Model accuracy (FR-MON-1) | `ml/app/api.py::models_accuracy` | P/R/F1/FPR computed from overrides as weak labels. Alert flags `fpr_high` / `recall_low` per thresholds. Surfaced on Anomaly Models tab + rollup pill. |
+| CEF/Syslog export (SI-6) | `ml/app/siem.py` | Background asyncio task tails the audit log, formats each row as ArcSight CEF, sends over UDP (RFC 3164 wrapper) AND/OR appends to a file. Configurable via `SYSLOG_HOST` / `SYSLOG_PORT` / `SIEM_LOG_PATH` env. In-memory cursor — restart loses up to one poll interval. |
+| Safe-mode v2 (REL-2) | `proxy/internal/pipeline/pipeline.go::SafeMode`, `proxy/cmd/proxy/main.go::safeModeMux` | `SetAuto` (heartbeat path) + `SetForced` (operator override, survives heartbeat success) + `State()` returning {safe_mode, forced, reason, since}. `POST /__safe-mode {force:bool, reason:str}` is admin / security-operator gated. Global red banner across every dashboard tab when active. |
+| Live training-loss chart (FR7.4) | `ml/training/train_autoencoder.py::_LossLogger` + `ml/app/api.py::models_training_progress` | Trainer writes `models/autoencoder.progress.jsonl` (one row per epoch); `is_active` heuristic = mtime within last 60s. Dashboard polls + renders Chart.js line. |
+| Char n-gram features | `ml/app/features.py::_ngram_stats`, `proxy/internal/normalizer/normalizer.go::ngramStats` | 3- and 4-gram entropy + unique-ratio. Lock-step parity enforced by `TestNgramStatsParity` in `normalizer_test.go`. Models.py shim truncates/pads when AE was trained on the old 7-feature vector. |
+| Topbar v2 (UX) | `dashboard/index.html`, `dashboard/js/app.js`, `dashboard/assets/style.css` | One rollup health pill (worst-of-6 status colour) + popover; compact user chip (name + role badge + signout icon). Replaces the previous 6-pill row. |
+| Role-aware UI | `dashboard/js/app.js::applyRoleVisibility` | Role strip below the topbar; greyed-out `readonly-card` class with "READ ONLY for your role" badge for cards the role can't mutate (Consensus + Model Promotion + Mining controls). |
 
 ## Repo layout
 
@@ -71,14 +108,38 @@ proxy/                  Go reverse proxy (Coraza WAF)
 
 ml/                     FastAPI scoring service (Python)
   app/                  routes, schemas, model loading, consensus engine
+    main.py               FastAPI app + /score + warmup + background-task startup
+    api.py                /api/* router (dashboard + mining + rules + models + siem + logs)
+    auth.py               JWT issue/decode + require_auth + require_role(*roles)
+    auth_router.py        /api/auth/* (login, MFA, users CRUD, brute-force alerts)
+    users.py              users collection + bcrypt + MFA (pyotp) + lockout + brute-force
+    consensus/            Weighted/Majority/Strict engine + Mongo-persisted config
+    mining/               M8 FP-Growth miner (lazy mlxtend import)
+    rulegen/              M9 + M10
+      orchestrator.py       provider dispatch (stub / gemini / openai / anthropic)
+      llm_gemini.py         Gemini Flash REST call (free tier)
+      store.py              candidate-rules state machine + rule-ID allocator
+      promoter.py           writes lg-<id>.conf + POSTs proxy /__reload
+    model_promotion.py    M11-full: drift watcher + candidate state machine + promote/reject
+    siem.py               SI-6: CEF/Syslog forwarder background task
+    models.py             AE + HDBSCAN lazy loader + score() with feature-dim shim
+    features.py           11-feature extractor (Go parity in proxy/internal/normalizer)
+    db.py                 Mongo client + collection helpers
+    schemas.py            Pydantic models
   models/               trained weights (gitignored: *.h5 *.keras *.pkl *.joblib)
+    autoencoder.progress.jsonl  per-epoch loss for FR7.4 live chart
+    autoencoder.candidate.*     M11 HITL candidate slot (created on retrain --candidate)
+    siem.log                    CEF file forwarder output
   training/             CSIC + Mongo loaders + train_autoencoder/train_hdbscan
   Dockerfile
 
-dashboard/              static HTML/JS (served by nginx in compose)
-  index.html
+dashboard/              static HTML/JS (served by nginx in compose; read-only mount)
+  index.html              all tabs + role strip + safe-mode banner + health popover
+  login.html              two-stage login (password, then optional MFA code)
   assets/style.css
-  js/app.js
+  js/app.js               every dashboard widget; topbar v2 rollup logic; role visibility
+  js/auth.js              token storage + role helpers (canManageRules/Models/Users)
+  js/login.js             login form handler (412 -> MFA prompt, 423 -> locked message)
 
 attacks/
   run_attacks.py        141-payload red-team battery (19 classes)
@@ -91,12 +152,28 @@ datasets/
 infra/
   docker-compose.yml    mongo + juiceshop (fyp-II) or dvwa (main) + ml + proxy + dashboard
 
+documentation/          outside-in docs for evaluators (overview, architecture,
+                        modules, setup, usage, results, design decisions) +
+                        questions/ folder with 72 prepared viva Qs
+docs/                   this directory; see CLAUDE.md for the index
+todo.md                 SRS/SDS backlog with tickboxes; research-paper roadmap
+                        section at the bottom
 storage/                Mongo init scripts (if any)
 tests/                  cross-service integration tests
 reference/              third-party reference material kept for citation
 .claude/                Claude Code working dir — gitignored, safe to write to
-docs/                   this directory; see CLAUDE.md for the index
 ```
+
+## Mongo collections
+
+| Collection | Owner | Purpose | Notable indexes |
+|---|---|---|---|
+| `requests` | proxy | M7 audit log; every decision goes here | unique(`request_id`); TTL on `timestamp` (default 90d, env `AUDIT_RETENTION_DAYS`) |
+| `rules_queue` | ML rulegen | M10 candidate rules state machine | unique(`fingerprint`), unique(`rule_id`) |
+| `model_candidates` | ML model_promotion | M11 HITL candidate models | sort on `created_at` |
+| `users` | ML users | RBAC + MFA + lockout | unique(`username`) |
+| `login_attempts` | ML users | brute-force watch | (`ip`, `at`); TTL 1h on `at` |
+| `ml_config` | ML consensus | persisted consensus engine settings | single-doc upsert |
 
 ## Source-of-truth documents
 

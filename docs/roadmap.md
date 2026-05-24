@@ -1,16 +1,32 @@
 # FYP-II roadmap
 
-Working branch: `fyp-II` (off `main`). 7 of 11 SRS modules done as of
-2026-05-22. Four left: M8, M9, M10, M11 — all FYP-II Phase B/C/D backbone.
+Working branch: `fyp-II` (off `main`). **All 11 SRS modules done** as of
+2026-05-24 (`751772e`). Phases B–D shipped; current focus is on the
+optional / research-grade items in `todo.md` at repo root.
 
-## Phase plan
+## Phase plan (historic)
 
 | Phase | SRS Modules | Backend | Dashboard |
 |---|---|---|---|
-| ~~A~~ | ~~M3 (FE-2 finish)~~ | **DONE 2026-05-22 on fyp-II.** Spamhaus DROP+EDROP fetched on boot + every 12h via `internal/threatintel`, atomic data-file rewrite, `coraza.Engine.Reload()` hot-swaps the WAF. Status at `GET /__threatintel`. Rule 1500001 phase:1. | ✓ "Threat intel" status card shipped (Blocklist status + Intel sources, two cards in split layout). |
-| **B** | M8 + M9 | FP-Growth miner over `latentguard.requests` confirmed-block subset → LLM rule synthesis via Groq / OpenRouter free-tier API → SecLang draft. Inputs come from the 21 known leak classes documented by the red-team battery. | "Proposed Rules" table on the Rules tab (currently a placeholder). |
-| **C** | M10 | HITL approve/reject/edit API; versioned rule store; hot-reload into Coraza without restart. **Foundation already shipped**: `coraza.Engine.Reload()` exists, used by threat-intel; M10 just reuses that path with an approve/reject UI on rule diffs. HITL is on **rules**, not individual requests (see gotchas #27). | Approve/Reject UX with approver audit trail. |
-| **D** | Auth + M11 | JWT auth + RBAC (admin / auditor / ml-engineer); scheduled drift-watch → retrain trigger. | Login screen; Training Pipeline screen (mockup M7). |
+| ~~A~~ | ~~M3 (FE-2 finish)~~ | **DONE 2026-05-22 on fyp-II.** Spamhaus DROP+EDROP fetched on boot + every 12h via `internal/threatintel`, atomic data-file rewrite, `coraza.Engine.Reload()` hot-swaps the WAF. Status at `GET /__threatintel`. Rule 1500001 phase:1. | ✓ "Threat intel" status card shipped. |
+| ~~B~~ | ~~M8 + M9~~ | **DONE on fyp-II (`12722b6`, `e7e2378`).** FP-Growth in `ml/app/mining/`; rulegen orchestrator with stub renderer + Gemini Flash provider (`LLM_PROVIDER` env switch, falls back to stub when no key). | ✓ Rules tab with mining controls + candidate table + edit modal + Preview matches. |
+| ~~C~~ | ~~M10~~ | **DONE on fyp-II (`12722b6`).** State machine in `rules_queue`; promoter writes `lg-<id>.conf` to shared volume + POSTs proxy `/__reload` (signed JWT). HITL on RULES, not individual requests. | ✓ Approve / Reject / Edit / Expire / Delete with role-gated buttons and edit history. |
+| ~~D~~ | ~~Auth + M11~~ | **DONE on fyp-II (`5a9843d`, `8782d2c`, `9ff3845`, `0429824`).** JWT auth + RBAC (4 roles: admin / security-operator / ml-engineer / auditor) + MFA (TOTP) + account lockout + brute-force watch; M11 full with drift watcher + HITL **model** promotion gate. | ✓ Login (two-stage MFA); Users tab; topbar v2 rollup health pill; role strip + READ ONLY cards for non-mutator roles; Model Promotion queue card. |
+
+## What's next (optional; tracked in `/todo.md`)
+
+The five top-priority items + the five high-impact items are **all
+shipped**. Remaining work is split across:
+- **Medium-impact**: SHAP/LIME, MISP/OTX feeds, auto-FP correction,
+  rule-effectiveness scoring, WS/HTTP2/gRPC inspection.
+- **Compliance / chapter-padding**: AES-256 at rest, LDAP/SSO, PCI/HIPAA
+  auto-reports, CSV/JSON export, keyboard shortcuts. Skip unless asked.
+- **Deployment & ops**: K8s/Helm, HPA, multi-tenancy, Prometheus/Grafana,
+  encrypted backups.
+- **ML research-grade**: VAE/Transformer, federated learning,
+  GPU/INT8 quantisation. See the "Research-paper roadmap" section at
+  the bottom of `todo.md` for Path A (systems paper) vs Path B (ML
+  novelty) framing.
 
 ## Confirmed design constraints from mockups (binding)
 
