@@ -28,7 +28,10 @@ that runs past ~120 lines goes into `docs/` with a one-line pointer below.
   feature you spot in the SRS/SDS, ASK the user whether they actually want
   it built.** "The SDS says X" is *not* sufficient justification on its
   own. The user re-stated this on 2026-05-22.
-- **FYP-II work stays off `main`.** It protects the submitted 30 % snapshot.
+- **`main` is hands-off after PR #3 (merge commit `4ca4dcb`, 2026-05-24).**
+  It now carries the FYP-II 70 % snapshot. New work continues on `fyp-II`;
+  the user calls the next PR-to-main moment. When that PR happens, use
+  `git merge --no-ff` (no squash, no rebase) — preserves per-commit history.
 - **Ask before risky actions:** force push, branch deletion, dropping
   containers with named volumes, anything that touches `main`.
 
@@ -89,7 +92,7 @@ including a "Research-paper roadmap" section at the bottom.
 **Working docs (`docs/`):**
 - `docs/architecture.md` — full module table, data flow, repo layout, source
   documents (SRS, SDS, mockups).
-- `docs/gotchas.md` — 28 landmines, each with the *why*. Tagged
+- `docs/gotchas.md` — 42 landmines, each with the *why*. Tagged
   `[PROXY] [ML] [INFRA] [UI] [DATA] [DESIGN]` so you can grep by area.
 - `docs/verified-states.md` — historical snapshots with re-verify recipes.
   Latest entry at the top is the live truth.
@@ -167,26 +170,10 @@ Maintain this manually when you commit — it's the fastest answer to
 - `5a9843d` — operator-panel auth: ML JWT (bcrypt + HS256), shared
   secret with proxy; dashboard login page + token-aware fetch wrapper.
 
-PR #3 merged `fyp-II` into `main` after `5a9843d`; everything above
-this line lives on `fyp-II` and is unpushed at time of writing.
-- `c5d0283` — extract SDS docx to markdown + point CLAUDE.md at
-  fyp-documents/.
-- `9b8b984` — docs split into `docs/`, CLAUDE.md slimmed 376 → 119 lines.
-- `45b735a` — remove per-request `review` verdict; WAFs are binary at the
-  edge. HITL belongs at the *rule* layer (M10), not on individual requests.
-- `f496a5d` — UI: bigger fonts + projector-friendly layout; split Threat
-  Intel into two cards (Blocklist status / Intel sources).
-- `719c77e` — UI: dashboard visual refresh (KPI icons, layered surfaces, TI
-  card rework).
-- `5fb2959` — fix(dashboard): drawer-backdrop covered the whole page on load.
-- `bec6c00` — dashboard: browsable audit log with filters, pagination,
-  detail drawer.
-- `e2614b9` — dashboard: live threat-intel card + CORS on proxy status
-  endpoints.
-- `0dc29f6` — M3 / FE-2: threat-intel blocklist (Spamhaus DROP+EDROP) with
-  hot reload via `coraza.Engine.Reload()`.
-- `5330630` — attacks: 141-payload red-team battery across 19 classes.
-- `1be93f5` — fyp-II: swap DVWA upstream for OWASP Juice Shop.
+PR #3 merged `fyp-II` into `main` after `5a9843d` (merge commit
+`4ca4dcb`, 2026-05-24). Everything above this line lives on `fyp-II`
+and is unpushed at time of writing. Pre-merge commit history lives
+in `git log main` if needed.
 
 ---
 
