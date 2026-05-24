@@ -37,6 +37,25 @@ that runs past ~120 lines goes into `docs/` with a one-line pointer below.
 
 ---
 
+## Current focus (read after hard rules)
+
+- All 11 SRS modules + the "Beyond SRS" extras are **DONE and on
+  `origin/fyp-II`**. Working tree clean as of 2026-05-24.
+- **No active build task.** The user is now in research-paper planning
+  mode. Discussion (this session) landed on **Path A + B1 combined**
+  as the recommended pick (systems paper + per-shape contrastive AE) —
+  see `todo.md` → "Research-paper roadmap". **Nothing greenlit for
+  implementation yet — wait for user to pick.**
+- **User has NO GPU.** B1 is CPU-trainable. B2 (HTTP-BERT) would need
+  Colab/Kaggle free tier. Don't assume GPU availability anywhere.
+- **The user's group partner will be reading `docs/study-plan.md`.**
+  Keep that file self-contained and free of insider phrasing.
+- Don't assume facts about state — re-check with `git status` /
+  `git log` / `ls` before recommending anything. The user explicitly
+  said: "i can't afford hallucinations".
+
+---
+
 ## What this project is (one paragraph)
 
 **LatentGuard** is an Adaptive Dual-Layer Web Application Firewall —
@@ -103,6 +122,10 @@ including a "Research-paper roadmap" section at the bottom.
 - `docs/defense-notes.md` — viva framing + deferred AI improvements that
   would unlock real ML contribution (n-grams, CRS anomaly_score, per-shape
   AE, contrastive loss).
+- `docs/study-plan.md` — **self-contained** topic-by-topic study list
+  (24 sections, ★/★★/★★★ depth marks) for what to learn before viva /
+  paper review. Written for the user AND a group partner reading cold.
+  Pure curriculum — no project-state assumptions.
 
 **FYP submission documents (`fyp-documents/`):**
 - `fyp-documents/fyp-I (Software Requirement Specification)/SRS Document.md`
@@ -126,6 +149,13 @@ search the SRS / SDS markdown to confirm the spec.
 Maintain this manually when you commit — it's the fastest answer to
 "what happened last session?".
 
+- `eb7f413` / `f2fddef` / `f6c4985` — added + iterated `docs/study-plan.md`.
+  Final form is a pure topic-by-topic curriculum (no project gaps, no
+  paper-strategy talk — that lives in `todo.md`). Audience: user + group
+  partner reading cold.
+- `5f76a47` / `687be70` — refreshed CLAUDE.md + every file under `docs/`
+  for the post-PR-#3 reality (main carries FYP-II 70 % snapshot; work
+  continues on `fyp-II`).
 - `751772e` — dashboard: topbar v2 (one rollup health pill + popover; user chip
   with role badge + signout icon); role-strip under topbar; greyed-out cards
   with READ ONLY badge for roles that can't mutate the contents.
