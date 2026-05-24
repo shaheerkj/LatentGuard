@@ -1,6 +1,6 @@
 # Study plan — end-to-end, for anyone joining the project
 
-Audience: **you (Shaheer) and your group partner.** Read this cold and
+Audience: FYP students. Read this cold and
 you should know (a) what LatentGuard is, (b) what we're trying to
 publish, (c) what to study to defend it in viva and survive paper
 review. No prior context required.
