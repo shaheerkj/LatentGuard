@@ -11,7 +11,7 @@ const REFRESH_MS = 5000;
 const els = {
     routes: document.querySelectorAll(".nav-link"),
     views: document.querySelectorAll(".view"),
-    safePill: document.getElementById("safe-mode-pill"),
+    safePill: null,  // legacy: subsumed by the health rollup. Kept as a key so refactors aren't required elsewhere.
     kpi: {
         total:   document.getElementById("kpi-total"),
         blocked: document.getElementById("kpi-blocked"),
@@ -62,7 +62,7 @@ const els = {
     },
     ti: {
         pill:        document.getElementById("ti-pill"),
-        topbarPill:  document.getElementById("ti-status-pill"),
+        topbarPill:  null,  // legacy: subsumed by the health rollup.
         enabled:     document.getElementById("ti-enabled"),
         entries:     document.getElementById("ti-entries"),
         lastSync:    document.getElementById("ti-last-sync"),
@@ -184,16 +184,9 @@ async function fetchJSONFrom(base, path, init) {
 
 async function refreshHealth() {
     const h = await fetchJSON("/healthz");
-    if (h && h.status === "ok") {
-        els.safePill.textContent = "ML: healthy";
-        els.safePill.className = "pill pill--ok";
-    } else if (h && h.status === "degraded") {
-        els.safePill.textContent = "ML: degraded";
-        els.safePill.className = "pill pill--warn";
-    } else {
-        els.safePill.textContent = "ML: down";
-        els.safePill.className = "pill pill--danger";
-    }
+    if (h && h.status === "ok")             _setHealth("ml", "ok",      "healthy");
+    else if (h && h.status === "degraded")  _setHealth("ml", "warn",    "degraded");
+    else                                    _setHealth("ml", "danger",  "down");
 }
 
 // REL-2: safe-mode banner + force-toggle. Polled on the same tick as
@@ -942,7 +935,7 @@ async function refreshThreatIntel() {
 
     if (!s) {
         setPill(els.ti.pill, "pill--danger", "proxy unreachable");
-        setPill(els.ti.topbarPill, "pill pill--danger", "Threat intel: down");
+        _setHealth("ti", "danger", "proxy unreachable");
         return;
     }
     const ok = s.enabled && s.entry_count > 0 && !s.last_error;
@@ -951,10 +944,9 @@ async function refreshThreatIntel() {
     const pillKlass = !s.enabled ? "pill--warn" : ok ? "pill--ok" : "pill--danger";
     setPill(els.ti.pill, pillKlass, pillText);
 
-    // Topbar mini-pill mirrors the card status.
-    const topbarText = !s.enabled ? "Threat intel: off"
-        : s.last_error ? "Threat intel: stale" : `Threat intel: ${fmt(s.entry_count)}`;
-    setPill(els.ti.topbarPill, pillKlass, topbarText);
+    // Feed the rollup -- map TI state to severity.
+    const sev = !s.enabled ? "warn" : (ok ? "ok" : "danger");
+    _setHealth("ti", sev, !s.enabled ? "disabled" : (s.last_error ? `stale: ${s.last_error}` : `${fmt(s.entry_count)} CIDRs loaded`));
 
     els.ti.enabled.textContent  = s.enabled ? "active" : "disabled";
     els.ti.entries.textContent  = fmt(s.entry_count);
@@ -1050,44 +1042,29 @@ if (_promoTbody) {
     });
 }
 
-// SI-6: SIEM forwarder pill. Off when no destination configured;
-// otherwise shows the rolling event count + last error if any.
+// SI-6: SIEM forwarder -- feeds the health rollup.
 async function refreshSiem() {
-    const pill = document.getElementById("siem-pill");
-    if (!pill) return;
     const s = await fetchJSON("/api/siem/status");
-    if (!s) { pill.className = "pill pill--danger"; pill.textContent = "SIEM: down"; return; }
+    if (!s) { _setHealth("siem", "danger", "endpoint down"); return; }
     if (!s.enabled) {
-        pill.className = "pill pill--neutral";
-        pill.textContent = "SIEM: off";
-        pill.title = "Set SYSLOG_HOST or SIEM_LOG_PATH in compose to enable CEF export";
+        _setHealth("siem", "neutral", "off (set SYSLOG_HOST or SIEM_LOG_PATH to enable)");
         return;
     }
     const dests = [];
     if (s.syslog_host) dests.push(`udp://${s.syslog_host}:${s.syslog_port}`);
     if (s.file_path) dests.push(s.file_path);
+    const dest = dests.join(", ");
     if (s.errors_total > 0) {
-        pill.className = "pill pill--warn";
-        pill.textContent = `SIEM: ${s.events_total} ev / ${s.errors_total} err`;
+        _setHealth("siem", "warn", `${s.events_total} events / ${s.errors_total} errors (-> ${dest})`);
     } else {
-        pill.className = "pill pill--ok";
-        pill.textContent = `SIEM: ${s.events_total} ev`;
+        _setHealth("siem", "ok", `${s.events_total} events (-> ${dest})`);
     }
-    pill.title = `Destinations: ${dests.join(", ") || "(none)"}\nLast export: ${s.last_export_at || "never"}\nLast error: ${s.last_error || "(none)"}`;
 }
 
-// FR-MON-1: model accuracy panel + topbar pill. Numbers derived from
-// operator overrides via /api/models/accuracy.
+// FR-MON-1: model accuracy panel + health rollup feed.
 async function refreshAccuracy() {
-    const pill = document.getElementById("accuracy-pill");
     const a = await fetchJSON("/api/models/accuracy");
-    const setPill = (cls, text, title) => {
-        if (!pill) return;
-        pill.className = cls;
-        pill.textContent = text;
-        if (title) pill.title = title;
-    };
-    if (!a) { setPill("pill pill--danger", "Accuracy: down"); return; }
+    if (!a) { _setHealth("accuracy", "danger", "endpoint down"); return; }
     const fmtPct = (v) => v == null ? "-" : (v * 100).toFixed(1) + "%";
     const $ = (id) => document.getElementById(id);
     if ($("acc-precision")) $("acc-precision").textContent = fmtPct(a.precision);
@@ -1098,17 +1075,13 @@ async function refreshAccuracy() {
     if ($("acc-sample"))    $("acc-sample").textContent    = `${a.total} requests over ${a.lookback_hours} h`;
     const alert = a.alert || {};
     if (alert.fpr_high) {
-        setPill("pill pill--danger", `FPR ${fmtPct(a.false_positive_rate)} !`,
-            `Above the ${(alert.fpr_threshold * 100).toFixed(1)}% alert threshold`);
+        _setHealth("accuracy", "danger", `FPR ${fmtPct(a.false_positive_rate)} above ${fmtPct(alert.fpr_threshold)} threshold`);
     } else if (alert.recall_low) {
-        setPill("pill pill--warn", `Recall ${fmtPct(a.recall)} !`,
-            `Below the ${(alert.recall_threshold * 100).toFixed(0)}% alert threshold`);
+        _setHealth("accuracy", "warn", `Recall ${fmtPct(a.recall)} below ${fmtPct(alert.recall_threshold)} threshold`);
     } else if (a.tp + a.fp + a.fn === 0) {
-        setPill("pill pill--neutral", "Accuracy: no labels",
-            "No operator overrides in the lookback window -- model accuracy is unmeasured");
+        _setHealth("accuracy", "neutral", "no operator labels yet");
     } else {
-        setPill("pill pill--ok", `F1 ${a.f1 == null ? "-" : Number(a.f1).toFixed(2)}`,
-            `Precision ${fmtPct(a.precision)} / Recall ${fmtPct(a.recall)}`);
+        _setHealth("accuracy", "ok", `F1 ${a.f1 == null ? "-" : Number(a.f1).toFixed(2)} (P=${fmtPct(a.precision)}, R=${fmtPct(a.recall)})`);
     }
 }
 
@@ -1161,27 +1134,15 @@ async function refreshAeLoss() {
 }
 
 async function refreshDrift() {
-    const pill = document.getElementById("drift-pill");
-    if (!pill) return;
     const d = await fetchJSON("/api/models/drift?window_min=60&baseline_min=1440");
-    if (!d) {
-        pill.className = "pill pill--danger";
-        pill.textContent = "Drift: down";
-        return;
-    }
+    if (!d) { _setHealth("drift", "danger", "endpoint down"); return; }
     if (d.z_score == null) {
-        pill.className = "pill pill--neutral";
-        pill.textContent = `Drift: warm-up (${d.window.n}/${d.baseline.n})`;
+        _setHealth("drift", "neutral", `warm-up (${d.window.n}/${d.baseline.n} samples)`);
         return;
     }
     const z = d.z_score;
-    const klass = d.drift_detected
-        ? (z > 0 ? "pill pill--danger" : "pill pill--warn")
-        : "pill pill--ok";
-    pill.className = klass;
-    pill.textContent = `Drift z=${z.toFixed(2)}${d.drift_detected ? " !" : ""}`;
-    pill.title = `Window n=${d.window.n} mean=${d.window.mean.toFixed(3)} | ` +
-                 `Baseline n=${d.baseline.n} mean=${d.baseline.mean.toFixed(3)} std=${d.baseline.std.toFixed(3)}`;
+    const sev = d.drift_detected ? (z > 0 ? "danger" : "warn") : "ok";
+    _setHealth("drift", sev, `z=${z.toFixed(2)} (n=${d.window.n} vs baseline ${d.baseline.n})`);
 }
 
 async function tick() {
@@ -1196,25 +1157,17 @@ async function tick() {
     await Promise.all(calls);
 }
 
-// SEC-10: top-of-screen pill + Users-tab table for IPs that hit
-// the brute-force threshold within the rolling 5-minute window.
+// SEC-10: brute-force watch -- feeds the health rollup + populates the
+// Users-tab table.
 async function refreshBruteForce() {
-    const pill = document.getElementById("bruteforce-pill");
     const data = await fetchJSON("/api/auth/alerts/brute-force");
-    if (!data) {
-        if (pill) { pill.className = "pill pill--danger"; pill.textContent = "Auth: down"; }
-        return;
-    }
+    if (!data) { _setHealth("bruteforce", "danger", "endpoint down"); return; }
     const alerts = data.alerts || [];
-    if (pill) {
-        if (alerts.length === 0) {
-            pill.className = "pill pill--ok";
-            pill.textContent = "Auth: clean";
-        } else {
-            pill.className = "pill pill--danger";
-            pill.textContent = `Auth: ${alerts.length} hot IP${alerts.length === 1 ? "" : "s"}`;
-            pill.title = alerts.map(a => `${a.ip} (${a.count} fails)`).join("\n");
-        }
+    if (alerts.length === 0) {
+        _setHealth("bruteforce", "ok", "no hot IPs");
+    } else {
+        const summary = alerts.map(a => `${a.ip} (${a.count})`).join(", ");
+        _setHealth("bruteforce", "danger", `${alerts.length} hot IP${alerts.length === 1 ? "" : "s"}: ${summary}`);
     }
     const tbody = document.getElementById("bruteforce-tbody");
     if (tbody) {
@@ -1452,45 +1405,150 @@ if (pwForm) {
     });
 }
 
-// Topbar username + role + sign-out wiring (auth.js was already loaded by
-// index.html before this script ran). Role pill mirrors current JWT role
-// so the operator can tell at a glance which permissions they have.
-const _topbarUser = document.getElementById("topbar-user");
-if (_topbarUser) _topbarUser.textContent = LG_AUTH.user() || "admin";
-const _topbarRole = document.getElementById("topbar-role");
-if (_topbarRole) {
-    const r = LG_AUTH.role() || "admin";
-    _topbarRole.textContent = `role: ${r}`;
-}
-const _logout = document.getElementById("logout-btn");
-if (_logout) _logout.addEventListener("click", () => LG_AUTH.logout());
+// Topbar user chip: name + role + sign-out, all in one widget.
+(function wireUserChip() {
+    const userEl = document.getElementById("topbar-user");
+    const roleEl = document.getElementById("topbar-role");
+    const out = document.getElementById("logout-btn");
+    if (userEl) userEl.textContent = LG_AUTH.user() || "?";
+    if (roleEl) roleEl.textContent = LG_AUTH.role() || "?";
+    if (out) out.addEventListener("click", () => LG_AUTH.logout());
+})();
 
-// Role-aware UI: hide nav items + buttons the current user has no
-// permission to use. Backend still enforces -- this is *cosmetic* so
-// users don't see buttons they'd only get 403s on. Run synchronously
-// before any data fetch so the user never sees a flash of disabled state.
+// ----- System Health rollup pill + popover ---------------------------------
+// Replaces 6 individual topbar pills. Severity ranking: danger > warn >
+// neutral > ok. Worst component wins the rollup colour. Click opens the
+// popover with per-component status.
+const HEALTH_RANK = { "ok": 0, "neutral": 1, "warn": 2, "danger": 3 };
+const _healthState = {
+    ml:         { sev: "neutral", value: "checking..." },
+    ti:         { sev: "neutral", value: "checking..." },
+    drift:      { sev: "neutral", value: "checking..." },
+    bruteforce: { sev: "neutral", value: "checking..." },
+    accuracy:   { sev: "neutral", value: "checking..." },
+    siem:       { sev: "neutral", value: "checking..." },
+};
+
+function _setHealth(key, sev, value) {
+    if (!_healthState[key]) return;
+    _healthState[key].sev = sev;
+    _healthState[key].value = value;
+    _renderHealth();
+}
+
+function _renderHealth() {
+    let worstSev = "ok";
+    let worstKey = null;
+    for (const [k, s] of Object.entries(_healthState)) {
+        if (HEALTH_RANK[s.sev] > HEALTH_RANK[worstSev]) {
+            worstSev = s.sev;
+            worstKey = k;
+        }
+    }
+    const btn = document.getElementById("health-rollup-btn");
+    const label = document.getElementById("health-rollup-label");
+    if (btn) btn.className = `health-rollup pill pill--${worstSev}`;
+    if (label) {
+        if (worstSev === "ok") {
+            label.textContent = "System: healthy";
+        } else if (worstSev === "neutral") {
+            label.textContent = "System: warming up";
+        } else {
+            const niceName = {ml:"ML",ti:"Threat intel",drift:"Drift",bruteforce:"Brute-force",accuracy:"Accuracy",siem:"SIEM"};
+            label.textContent = `System: ${niceName[worstKey] || worstKey} ${worstSev === "danger" ? "down" : "warning"}`;
+        }
+    }
+    // Update popover rows.
+    for (const [k, s] of Object.entries(_healthState)) {
+        const row = document.querySelector(`.health-row[data-health="${k}"]`);
+        if (!row) continue;
+        const dot = row.querySelector(".health-dot");
+        const val = row.querySelector(".health-value");
+        if (dot) dot.className = `health-dot health-dot--${s.sev}`;
+        if (val) val.textContent = s.value;
+    }
+}
+
+(function wireHealthPopover() {
+    const btn = document.getElementById("health-rollup-btn");
+    const pop = document.getElementById("health-popover");
+    if (!btn || !pop) return;
+    btn.addEventListener("click", (e) => {
+        e.stopPropagation();
+        const open = pop.hidden;
+        pop.hidden = !open;
+        btn.setAttribute("aria-expanded", String(open));
+    });
+    document.addEventListener("click", (e) => {
+        if (!pop.hidden && !pop.contains(e.target) && e.target !== btn) {
+            pop.hidden = true;
+            btn.setAttribute("aria-expanded", "false");
+        }
+    });
+})();
+
+// Role-aware UI. Three layers:
+//   1. Role strip under the topbar (clear text explaining what this role can do)
+//   2. Hide nav links the role has no business in
+//   3. Disable+grey out entire mutator cards (not just buttons) so the UI
+//      visibly tells a non-mutator "this is read only for you"
+// Backend still enforces; the UI changes are cosmetic but deliberately
+// dramatic so the operator can tell their role at a glance.
 (function applyRoleVisibility() {
-    // Users tab (admin only).
+    const role = LG_AUTH.role() || "admin";
+    const strip = document.getElementById("role-strip");
+    const messages = {
+        "admin":            { klass: "role-strip--admin",   text: "Signed in as <b>admin</b> -- full access to every tab and control." },
+        "security-operator":{ klass: "role-strip--secop",   text: "Signed in as <b>security-operator</b> -- you can mine, approve, edit, and expire rules; force safe-mode; override decisions. Model retraining + consensus tuning are admin/ml-engineer only." },
+        "ml-engineer":      { klass: "role-strip--mleng",   text: "Signed in as <b>ml-engineer</b> -- you can retrain models, tune consensus, promote candidates. Rule approval is admin/security-operator only." },
+        "auditor":          { klass: "role-strip--auditor", text: "Signed in as <b>auditor</b> -- READ ONLY. Every tab is visible; no mutation buttons are wired." },
+    };
+    const m = messages[role] || messages["admin"];
+    if (strip) {
+        strip.innerHTML = m.text;
+        strip.className = "role-strip " + m.klass;
+        strip.hidden = false;
+    }
+
+    // Hide nav links via data-role attribute.
     document.querySelectorAll('[data-role-required="admin"]').forEach(el => {
         el.hidden = !LG_AUTH.canManageUsers();
     });
-    // Retrain buttons + consensus save button (model operators).
+
+    // Models tab: retrain buttons + candidate-promotion controls.
     if (!LG_AUTH.canManageModels()) {
         document.querySelectorAll('[data-retrain]').forEach(b => b.hidden = true);
         const saveCons = document.getElementById("save-consensus");
         if (saveCons) saveCons.hidden = true;
-        // Disable consensus sliders so an auditor doesn't think they can
-        // change them and lose the change on the next refresh.
         document.querySelectorAll('#view-consensus input[type="range"]').forEach(i => i.disabled = true);
         document.querySelectorAll('#view-consensus input[name="mode"]').forEach(i => i.disabled = true);
+        // Visually grey out the whole consensus form so it's obvious it's
+        // read-only -- not just "save button is missing".
+        const consCard = document.querySelector("#view-consensus .card");
+        if (consCard) consCard.classList.add("readonly-card");
+        // Same for the promotion card -- you can't trigger or approve.
+        const promo = document.getElementById("promotion-card");
+        if (promo) promo.classList.add("readonly-card");
     }
-    // Mining run + rule action buttons (rule operators).
+
+    // Rules tab.
     if (!LG_AUTH.canManageRules()) {
         const mineBtn = document.getElementById("mine-run");
         if (mineBtn) mineBtn.hidden = true;
-        // Per-row buttons in the rules table are rendered dynamically;
-        // renderRuleActions checks the same predicate.
+        // Grey out the mining card.
+        const mineCard = document.querySelector("#view-rules .card");
+        if (mineCard) mineCard.classList.add("readonly-card");
+        // Per-row buttons in the rules table + the modal Save button are
+        // gated separately in renderRuleActions / the modal handlers.
     }
+
+    // Disable any input/select/textarea in greyed-out cards so tab-key
+    // navigation doesn't land on dead controls.
+    setTimeout(() => {
+        document.querySelectorAll(".readonly-card input, .readonly-card select, .readonly-card textarea, .readonly-card button:not(.readonly-allow)").forEach(el => {
+            el.disabled = true;
+        });
+    }, 50);
 })();
 
 refreshConsensusConfig();

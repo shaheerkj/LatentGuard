@@ -27,17 +27,63 @@
             <a class="nav-link nav-link--soon" data-route="settings">Settings</a>
         </nav>
         <div class="status">
-            <span id="safe-mode-pill" class="pill pill--ok">ML</span>
-            <span id="ti-status-pill" class="pill pill--neutral">Threat intel</span>
-            <span id="drift-pill" class="pill pill--neutral" title="Autoencoder anomaly-score drift vs baseline window">Drift: -</span>
-            <span id="bruteforce-pill" class="pill pill--ok" title="IPs with >10 failed logins in the last 5 minutes">Auth: clean</span>
-            <span id="accuracy-pill" class="pill pill--neutral" title="Model accuracy from operator overrides">Accuracy: -</span>
-            <span id="siem-pill" class="pill pill--neutral" title="SIEM/Syslog forwarder status">SIEM: -</span>
-            <span class="topbar-user" id="topbar-user" title="Signed in"></span>
-            <span class="topbar-role pill pill--neutral" id="topbar-role" title="Current role">role: -</span>
-            <button class="btn btn-icon-text" id="logout-btn" type="button" title="Sign out">Sign out</button>
+            <!-- Single rollup pill: aggregates ML / Threat intel / Drift /
+                 Auth / Accuracy / SIEM into worst-status colour. Click to
+                 expand the popover with all six components broken out. -->
+            <button class="health-rollup pill pill--ok" id="health-rollup-btn" type="button" aria-haspopup="true" aria-expanded="false">
+                <span class="health-dot" aria-hidden="true"></span>
+                <span id="health-rollup-label">System: -</span>
+                <span class="health-caret" aria-hidden="true">&#9662;</span>
+            </button>
+
+            <!-- User chip + role + sign-out, condensed into one widget -->
+            <div class="user-chip">
+                <span class="user-chip-name" id="topbar-user">-</span>
+                <span class="user-chip-role" id="topbar-role">-</span>
+                <button class="user-chip-signout" id="logout-btn" type="button" title="Sign out" aria-label="Sign out">&#x2715;</button>
+            </div>
+        </div>
+
+        <!-- Health popover -- absolutely positioned, toggled by the rollup pill.
+             Six rows, one per subsystem, each with a coloured dot + label + value. -->
+        <div class="health-popover" id="health-popover" hidden>
+            <div class="health-popover-arrow"></div>
+            <div class="health-row" data-health="ml">
+                <span class="health-dot health-dot--neutral"></span>
+                <span class="health-label">ML service</span>
+                <span class="health-value" id="health-ml-val">-</span>
+            </div>
+            <div class="health-row" data-health="ti">
+                <span class="health-dot health-dot--neutral"></span>
+                <span class="health-label">Threat intel</span>
+                <span class="health-value" id="health-ti-val">-</span>
+            </div>
+            <div class="health-row" data-health="drift">
+                <span class="health-dot health-dot--neutral"></span>
+                <span class="health-label">AE drift</span>
+                <span class="health-value" id="health-drift-val">-</span>
+            </div>
+            <div class="health-row" data-health="bruteforce">
+                <span class="health-dot health-dot--neutral"></span>
+                <span class="health-label">Brute-force watch</span>
+                <span class="health-value" id="health-bruteforce-val">-</span>
+            </div>
+            <div class="health-row" data-health="accuracy">
+                <span class="health-dot health-dot--neutral"></span>
+                <span class="health-label">Model accuracy</span>
+                <span class="health-value" id="health-accuracy-val">-</span>
+            </div>
+            <div class="health-row" data-health="siem">
+                <span class="health-dot health-dot--neutral"></span>
+                <span class="health-label">SIEM forwarder</span>
+                <span class="health-value" id="health-siem-val">-</span>
+            </div>
         </div>
     </header>
+
+    <!-- Per-role hint strip. JS fills with one-line text appropriate to the
+         current role so users can immediately tell what they can / can't do. -->
+    <div class="role-strip" id="role-strip" hidden></div>
 
     <!-- Safe-mode banner -- rendered globally across every tab when the proxy
          is operating in ModSecurity-only mode. JS hides this on page load

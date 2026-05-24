@@ -1351,3 +1351,174 @@ tr:hover .method-tag {
 /* ---------- M11-full promotion queue ---------- */
 .status-training { background: rgba(99, 102, 241, 0.20); color: #A5B4FC; }
 .status-failed   { background: rgba(239, 68, 68, 0.18); color: #F87171; }
+
+/* =================================================================
+   Topbar v2 -- rollup health pill + compact user chip
+   Replaces the row-of-pills clutter. Each subsystem still tracked,
+   surfaced in the popover the rollup opens.
+   ================================================================= */
+.status {
+    display: flex;
+    align-items: center;
+    gap: 14px;
+    position: relative;
+}
+.health-rollup {
+    display: inline-flex;
+    align-items: center;
+    gap: 8px;
+    padding: 6px 12px;
+    border-radius: 999px;
+    border: 1px solid var(--border);
+    background: var(--surface-1);
+    color: var(--text);
+    font-family: var(--font-mono);
+    font-size: 12px;
+    cursor: pointer;
+    transition: filter 120ms ease;
+}
+.health-rollup:hover { filter: brightness(1.1); }
+.health-rollup.pill--ok      { border-color: rgba(16, 185, 129, 0.4); }
+.health-rollup.pill--neutral { border-color: rgba(107, 114, 128, 0.4); }
+.health-rollup.pill--warn    { border-color: rgba(245, 158, 11, 0.5); }
+.health-rollup.pill--danger  { border-color: rgba(239, 68, 68, 0.5); }
+.health-rollup .health-dot {
+    width: 8px; height: 8px;
+    border-radius: 50%;
+    background: #6B7280;
+}
+.health-rollup.pill--ok     .health-dot { background: #10B981; box-shadow: 0 0 6px rgba(16,185,129,0.6); }
+.health-rollup.pill--warn   .health-dot { background: #F59E0B; box-shadow: 0 0 6px rgba(245,158,11,0.6); }
+.health-rollup.pill--danger .health-dot { background: #EF4444; box-shadow: 0 0 8px rgba(239,68,68,0.7); animation: pulse-danger 1.6s ease-in-out infinite; }
+@keyframes pulse-danger {
+    0%, 100% { opacity: 1; }
+    50%      { opacity: 0.45; }
+}
+.health-caret { color: var(--text-faint); font-size: 10px; }
+
+.health-popover {
+    position: absolute;
+    top: calc(100% + 10px);
+    right: 0;
+    z-index: 50;
+    width: 320px;
+    background: var(--surface-0);
+    border: 1px solid var(--border);
+    border-radius: 10px;
+    box-shadow: 0 16px 48px rgba(0,0,0,0.45);
+    padding: 6px 0;
+}
+.health-popover[hidden] { display: none; }
+.health-popover-arrow {
+    position: absolute;
+    top: -6px; right: 24px;
+    width: 12px; height: 12px;
+    background: var(--surface-0);
+    border-left: 1px solid var(--border);
+    border-top: 1px solid var(--border);
+    transform: rotate(45deg);
+}
+.health-row {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    padding: 10px 14px;
+    border-bottom: 1px solid var(--border);
+    font-size: 12.5px;
+}
+.health-row:last-child { border-bottom: none; }
+.health-row .health-dot {
+    width: 10px; height: 10px;
+    border-radius: 50%;
+    flex-shrink: 0;
+}
+.health-dot--ok      { background: #10B981; }
+.health-dot--warn    { background: #F59E0B; }
+.health-dot--danger  { background: #EF4444; }
+.health-dot--neutral { background: #6B7280; }
+.health-label { color: var(--text); font-weight: 500; min-width: 130px; }
+.health-value { color: var(--text-faint); font-family: var(--font-mono); font-size: 11.5px; flex: 1; text-align: right; word-break: break-word; }
+
+/* ---------- User chip (consolidated user / role / sign-out) ---------- */
+.user-chip {
+    display: inline-flex;
+    align-items: center;
+    gap: 8px;
+    padding: 4px 4px 4px 12px;
+    background: var(--surface-1);
+    border: 1px solid var(--border);
+    border-radius: 999px;
+    font-size: 12.5px;
+}
+.user-chip-name { color: var(--text); font-weight: 600; }
+.user-chip-role {
+    background: rgba(99, 102, 241, 0.15);
+    color: #A5B4FC;
+    padding: 2px 8px;
+    border-radius: 999px;
+    font-family: var(--font-mono);
+    font-size: 11px;
+    text-transform: lowercase;
+}
+.user-chip-signout {
+    width: 24px; height: 24px;
+    border: none;
+    border-radius: 50%;
+    background: transparent;
+    color: var(--text-faint);
+    cursor: pointer;
+    font-size: 13px;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+}
+.user-chip-signout:hover { background: rgba(239, 68, 68, 0.15); color: #F87171; }
+
+/* ---------- Per-role hint strip ---------- */
+.role-strip {
+    padding: 8px 24px;
+    font-size: 12.5px;
+    border-bottom: 1px solid var(--border);
+}
+.role-strip[hidden] { display: none; }
+.role-strip b { color: var(--text); }
+.role-strip--admin   { background: rgba(99, 102, 241, 0.10);  color: #A5B4FC; }
+.role-strip--secop   { background: rgba(245, 158, 11, 0.10);  color: #FCD34D; }
+.role-strip--mleng   { background: rgba(16, 185, 129, 0.10);  color: #6EE7B7; }
+.role-strip--auditor { background: rgba(107, 114, 128, 0.15); color: #D1D5DB; }
+
+/* ---------- Read-only card treatment for roles without mutator perms ---------- */
+.readonly-card {
+    position: relative;
+    opacity: 0.78;
+    background-image:
+        repeating-linear-gradient(
+            -45deg,
+            transparent 0,
+            transparent 8px,
+            rgba(255, 255, 255, 0.012) 8px,
+            rgba(255, 255, 255, 0.012) 16px
+        );
+}
+.readonly-card::before {
+    content: "READ ONLY for your role";
+    position: absolute;
+    top: 8px; right: 12px;
+    background: rgba(107, 114, 128, 0.3);
+    color: #D1D5DB;
+    font-size: 10px;
+    font-family: var(--font-mono);
+    font-weight: 600;
+    letter-spacing: 0.6px;
+    padding: 3px 8px;
+    border-radius: 4px;
+    text-transform: uppercase;
+    pointer-events: none;
+}
+.readonly-card input:disabled,
+.readonly-card select:disabled,
+.readonly-card textarea:disabled,
+.readonly-card button:disabled {
+    cursor: not-allowed;
+    opacity: 0.55;
+}
