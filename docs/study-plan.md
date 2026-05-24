@@ -1,418 +1,428 @@
-# Study plan — end-to-end, for anyone joining the project
+# Study plan — everything to learn before presenting LatentGuard
 
-Audience: FYP students. Read this cold and
-you should know (a) what LatentGuard is, (b) what we're trying to
-publish, (c) what to study to defend it in viva and survive paper
-review. No prior context required.
+A self-contained checklist of topics. If you can explain each line item
+without notes, you can defend the project in viva or talk through it
+with a stranger. Topics are grouped by area; depth needed is marked:
 
-Estimated total: **~4-6 weeks at 2-3 hrs/day** if you already code Python.
+- ★ = working intuition (one paragraph, one diagram)
+- ★★ = can implement a small version
+- ★★★ = can explain trade-offs and failure modes
 
----
-
-## Part 1 — what LatentGuard actually is (read first)
-
-**LatentGuard is an Adaptive Dual-Layer Web Application Firewall.**
-A Web Application Firewall (WAF) sits in front of a web app and blocks
-malicious HTTP requests (SQL injection, XSS, etc.) before they reach
-the app. Most WAFs are *rule-based* (regex patterns written by humans).
-Ours combines that with *machine learning* and a feedback loop that
-**generates new rules from observed attacks**.
-
-### The 3-layer pipeline (every request walks through this)
-
-```
-client → [Go reverse proxy] → [Coraza WAF + OWASP CRS rules]
-                                          │
-                                          ▼
-                              [Python ML service]
-                              ├── Autoencoder (anomaly score)
-                              ├── HDBSCAN (cluster-outlier check)
-                              └── Consensus voter (binary verdict)
-                                          │
-                                          ▼
-                          [MongoDB audit log] → if attack:
-                                          │
-                                          ▼
-                            [FP-Growth pattern miner]
-                                          │
-                                          ▼
-                  [LLM / template orchestrator → SecRule candidate]
-                                          │
-                                          ▼
-                  [Human-in-the-loop approval in dashboard]
-                                          │
-                                          ▼
-                  [Hot-reload back into Coraza] — loop closes
-```
-
-### Module map (11 SRS modules, all DONE)
-
-| # | Module | What it does |
-|---|---|---|
-| M1 | Reverse proxy + TLS | Go proxy with self-signed certs in dev |
-| M2 | Normalisation + features | URL-decode + extract 11 numeric features (length, entropy, n-gram entropy, special-char ratio, etc.) |
-| M3 | Rule engine | Coraza (Go ModSecurity) + OWASP CRS v4.7.0 + Spamhaus threat-intel feed (12h hot-reload) |
-| M4 | Autoencoder | Keras MLP 11→16→8→**4**→8→16→11. Trained on benign traffic. High reconstruction error = anomaly. |
-| M5 | HDBSCAN | Density clustering in the 4-dim bottleneck space. Request landing in cluster -1 (outlier) = second anomaly signal. |
-| M6 | Consensus | Weighted/Majority/Strict voting across CRS verdict + AE score + HDBSCAN outlier flag → final binary verdict. |
-| M7 | Audit log | Every request stored in MongoDB with 90-day TTL. |
-| M8 | FP-Growth miner | Frequent-itemset mining over confirmed-attack audit rows → recurring attack patterns. |
-| M9 | Rule synthesis | LLM (Gemini Flash free tier, with stub fallback) turns mined patterns into draft `SecRule` text. |
-| M10 | HITL rule approval | Human operator reviews drafted rules in dashboard; approved rules hot-loaded into Coraza. |
-| M11 | Drift watch + model HITL | Background watcher detects feature drift, triggers retrain → operator approves new model before promotion. |
-
-Plus: JWT auth, RBAC (4 roles), TOTP MFA, account lockout, decision
-override audit, model-accuracy panel, CEF/Syslog export, sandbox-test
-of candidate rules, live training-loss chart, operator-controllable
-safe-mode banner. (Details: `CLAUDE.md` and `docs/architecture.md`.)
-
-### Known honest gaps (don't hide these, defend them)
-
-1. **TPR on CSIC dataset ≈ 27%** — the model is trained on Juice Shop
-   traffic, so it underfits attacks whose *content* looks benign-shaped
-   (SQL keywords in a normal-length parameter). Coraza catches those;
-   the layers are complementary. See `docs/roadmap.md`.
-2. **P95 latency ≈ 170 ms** vs the 150 ms target. Per-request Keras
-   `predict` over a tiny batch incurs ~30 ms framework overhead.
-3. **"Continuous learning"** is scheduled (cron-style), not true
-   streaming. Document the constraint.
+For paper-specific topics and research direction, see
+`todo.md` → Research-paper roadmap. This file is purely *what to study*.
 
 ---
 
-## Part 2 — what we're trying to publish (paper paths explained)
+## 1. Web + networking foundations
 
-We want a peer-reviewed paper out of this codebase. There are two
-realistic framings. **Pick one. Or combine A + B1 (recommended).**
+You can't reason about a WAF without these.
 
-### Path A — "systems paper"
-
-**Claim:** *the closed loop itself is the contribution.*
-Most WAFs are static (rules written once, attack landscape moves on).
-We built a WAF that mines patterns from its own traffic, drafts rules
-with an LLM, gets a human to approve them, and hot-loads them back —
-all in production-grade containers with RBAC, MFA, audit, and
-fail-safe mode. **No one paper combines all of this.**
-
-What we'd need to add to publish:
-- **A1.** Comparative TPR/FPR over time vs static-rule baseline.
-- **A2.** Operator-labour metric: how many mined candidates get
-  approved, time-from-attack-onset-to-rule-live.
-- **A3.** Multi-app generalisation: same stack against 2-3 different
-  upstreams (Juice Shop, DVWA, WebGoat).
-- **A4.** Adversarial pressure test: throw obfuscated payloads at it.
-- **A5.** Honest comparison vs ModSecurity-alone, AWS WAF managed
-  rules, Cloudflare free tier.
-
-**Effort:** ~2-3 weeks. **Risk:** low — the system already exists.
-**Target venues:** ACSAC, RAID, DSN systems track, DIMVA.
-
-### Path B — "ML novelty paper"
-
-The ML layer right now is *adequate* — vanilla autoencoder + HDBSCAN +
-consensus. Not a research contribution on its own. To publish on ML
-specifically, we'd need a novel ML idea. **Pick ONE of these:**
-
-- **B1. Per-shape contrastive autoencoder ⭐ recommended.** Instead of
-  one global AE, train one AE per `(method, path-prefix)` combination
-  (e.g. one for `POST /login`, one for `GET /products`). Plus replace
-  reconstruction loss with **supervised contrastive loss** — pull
-  benign requests together in embedding space, push known attacks
-  apart. Genuinely under-explored for WAF. **CPU-trainable.** ~2 weeks.
-- **B2. HTTP-BERT.** Small Transformer encoder (4 layers, ~5M params)
-  trained MLM-style on benign HTTP. Anomaly score = perplexity of
-  the request under the model. Highest paper ceiling. ~3-4 weeks.
-  **Needs Colab/Kaggle free GPU.**
-- **B3.** Active learning + adversarial robustness. Workshop tier.
-- **B4.** Sparse-bottleneck interpretability. Workshop tier.
-- **B5.** Federated learning across two LatentGuard instances. High
-  novelty, high risk, hard to evaluate alone. Recommend as
-  future-work, not as the paper.
-
-### Our recommended pick: **A + B1 combined**
-
-Systems paper (Path A) as the backbone, per-shape contrastive
-autoencoder (B1) as the ML contribution inside it. Strongest defensible
-story. ~3-4 weeks total. **No GPU required.**
-
-Implementation order (full breakdown in `todo.md` → Research-paper
-roadmap):
-1. Adversarial-eval harness (LLM/obfuscation mutator + recall-delta
-   script) — 2 days
-2. Per-shape AE infrastructure (shape clustering + router) — 3 days
-3. Contrastive-loss training option in `train_autoencoder.py` — 2 days
-4. `bench/` eval automation (multi-week simulated attack runs,
-   CSV/JSON/matplotlib output) — 3 days
-5. Baselines: ModSecurity-only, CRS-only — 2 days
-
-**~12 working days for an experimental section worth writing up.**
+- **HTTP/1.1 protocol** ★★ — request line, headers, body, methods
+  (GET/POST/PUT/DELETE/PATCH/HEAD/OPTIONS), status codes (2xx/3xx/4xx/5xx
+  meaning), chunked transfer-encoding, keep-alive.
+- **HTTP/2 and HTTP/3** ★ — multiplexing, header compression (HPACK),
+  why they complicate WAF inspection.
+- **URL anatomy** ★★ — scheme, host, port, path, query string,
+  fragment, percent-encoding, double-encoding, IDN/punycode.
+- **TLS 1.2 / 1.3** ★★ — handshake steps, cipher suites, SNI,
+  certificate chains, root CAs, why a reverse proxy must terminate TLS
+  to inspect plaintext.
+- **Self-signed certificates** ★ — how to generate, why browsers warn,
+  when it's acceptable (dev only).
+- **Reverse proxy vs forward proxy** ★★ — definitions, why a WAF is a
+  reverse proxy.
+- **CORS** ★ — preflight requests, headers, why misconfiguration is a
+  bug class.
+- **Cookies + sessions** ★★ — `HttpOnly`, `Secure`, `SameSite`, session
+  fixation.
 
 ---
 
-## Part 3 — what to study (the actual plan)
+## 2. Web application security (OWASP)
 
-Now you know the project and the paper goal. This is what you must
-learn to own them.
+You will be asked about every one of these attack classes.
 
-### Tier 0 — math you can't dodge (1 week)
+- **OWASP Top 10 (2021)** ★★ — name all ten, give one example each.
+- **SQL injection** ★★★ — union-based, error-based, boolean-blind,
+  time-blind, second-order, stacked queries. Why parameterised queries
+  fix it.
+- **Cross-site scripting (XSS)** ★★★ — reflected, stored, DOM-based;
+  why CSP helps; encoding contexts (HTML body vs attribute vs JS vs URL).
+- **Cross-site request forgery (CSRF)** ★★ — token defence, SameSite
+  cookies.
+- **Server-side request forgery (SSRF)** ★★ — IMDS abuse, blind SSRF,
+  DNS rebinding.
+- **Remote code execution (RCE)** ★★ — shell injection, eval injection,
+  template injection.
+- **Local file inclusion / remote file inclusion (LFI / RFI)** ★★ —
+  path traversal, null-byte tricks, `php://` wrappers.
+- **LDAP injection** ★ — filter syntax, escape rules.
+- **XML external entity (XXE)** ★★ — entity expansion, OOB exfiltration.
+- **Server-side template injection (SSTI)** ★★ — Jinja2/Twig sandbox
+  escapes.
+- **Insecure deserialisation** ★ — Python pickle, Java/PHP gadgets.
+- **HTTP parameter pollution (HPP)** ★ — duplicate parameters, parser
+  inconsistencies.
+- **Header-based attacks** ★ — X-Forwarded-For spoofing, Host header
+  injection, request smuggling.
+- **Scanner detection** ★ — typical user-agents (Nikto, Acunetix, ZAP,
+  Burp Collaborator), why UA alone is weak signal.
 
-You don't need a PhD, you need working fluency.
+### Evasion techniques
 
-- **Linear algebra:** vectors, dot product, matrix multiplication,
-  eigenvectors (intuition only). → 3Blue1Brown *Essence of Linear
-  Algebra* (YouTube, ~3 hrs total).
-- **Probability:** conditional probability, Bayes rule, expectation,
-  variance, Gaussian. *Why:* anomaly scoring is fundamentally
-  `P(x | benign) is low`.
-- **Calculus for ML:** partial derivatives, chain rule, gradient. You
-  don't derive backprop, but you must explain *why gradient descent
-  works* without hand-waving.
-- **Information theory:** entropy (Shannon), KL divergence,
-  cross-entropy. *Why:* our 11 features include Shannon entropy and
-  n-gram entropy directly.
-
-Resource: Goodfellow *Deep Learning* book, Ch 2-3 (free online). Skim.
-
-### Tier 1 — the techniques actually in our repo (2 weeks)
-
-Every one of these is in code right now. You MUST be able to
-whiteboard each.
-
-#### Autoencoders (M4)
-- Vanilla AE architecture: encoder → bottleneck → decoder.
-- Reconstruction loss (MSE). Why MSE not cross-entropy here.
-- Bottleneck dimensionality trade-off (we use 4 from 11).
-- Why AEs detect anomalies: in-distribution reconstructs well, OOD
-  reconstructs poorly → high error = anomaly.
-- **Failure modes:** AE can learn identity if bottleneck too wide; AE
-  generalises *too well* and reconstructs attacks fine if attack shape
-  ≈ benign shape. (This is exactly our CSIC ~27% TPR problem — must
-  own this in viva.)
-- Read: Goodfellow Ch 14 (Autoencoders).
-
-#### HDBSCAN (M5)
-- Density-based clustering vs k-means (no k, finds outliers as label -1).
-- Concepts: mutual reachability distance, condensed tree, cluster
-  stability.
-- Why HDBSCAN over DBSCAN: handles variable density.
-- Why we use it: bottleneck-space clusters define "normal regions";
-  request landing as outlier (-1) = second anomaly signal.
-- Read: Campello et al. 2013 abstract + intro + the `hdbscan` Python
-  docs "How HDBSCAN Works".
-
-#### FP-Growth (M8)
-- Frequent itemset mining: support, confidence, lift.
-- FP-Growth vs Apriori (we picked it: faster, no candidate generation).
-- How we map HTTP requests → itemsets: each attack-confirmed request
-  becomes a transaction of `{path-prefix, method, rule-IDs, ip-/24,
-  AE-high, outlier-high, body-present}`. Frequent itemsets = recurring
-  attack patterns.
-- Read: Han et al. 2000 FP-Growth paper, sections 1-3.
-
-#### Multi-signal consensus (M6)
-- Weighted / Majority / Strict voting schemes.
-- Per-model weight sliders summing to 100.
-- Decision threshold tuning + ROC curve relationship.
-- Honest framing: it IS an ensemble of 3 detectors (CRS + AE +
-  HDBSCAN). Read Dietterich 2000 ensemble survey (short).
-
-#### TLS / reverse proxy fundamentals (M1)
-Not ML, but you will be asked: SNI, certificate chains, why we
-self-sign in dev, why a reverse proxy can decrypt + inspect.
-
-### Tier 2 — what we NEED for the paper (2 weeks)
-
-#### For everyone (whether we go Path A, B1, B2, or A+B1)
-
-- **Evaluation metrics deep dive:** precision, recall, F1, FPR, TPR,
-  ROC-AUC, PR-AUC, **why PR-AUC matters more than ROC-AUC on
-  imbalanced data** (WAF traffic is 99%+ benign).
-- **Confusion matrix discipline.** TP/FP/TN/FN definitions in the WAF
-  context — what counts as "ground truth" in our 141-payload battery?
-- **Statistical significance:** McNemar's test for paired classifier
-  comparison (you'll need this for "B1 beats baseline AE"). Bootstrap
-  confidence intervals on metrics.
-- **Adversarial ML basics:** FGSM, PGD (intuition only); why
-  WAF-specific adversarial = payload obfuscation (URL encoding, case
-  mixing, comment injection) not pixel perturbation.
-
-#### Only if pursuing B1 (per-shape contrastive AE — recommended)
-
-- **Contrastive learning:** SimCLR (Chen et al. 2020), supervised
-  contrastive (Khosla et al. 2020). Core idea: pull positives together,
-  push negatives apart in embedding space.
-- **Triplet loss vs NT-Xent loss vs SupCon loss.** Know trade-offs.
-- **Why per-shape (per-(method, path-prefix)) matters:** distribution
-  shift across endpoints. `/login` POST traffic distribution ≠
-  `/products` GET. One model = averaged failure mode. We're proposing
-  shape-routed specialists.
-- **Embedding-space anomaly detection:** distance to nearest benign
-  cluster centroid instead of reconstruction error.
-- Read: Khosla 2020 SupCon paper + Liu et al. 2021 self-supervised
-  survey.
-
-#### Only if pursuing B2 (HTTP-BERT — needs Colab GPU)
-
-- **Transformer architecture:** self-attention, multi-head, positional
-  encoding, encoder vs decoder. → Jay Alammar "Illustrated Transformer".
-- **BERT specifically:** MLM (masked language modelling), WordPiece
-  tokenisation, [CLS] / [MASK] tokens. → Devlin 2018 paper.
-- **Tokenisation for HTTP:** off-the-shelf tokenisers are bad for URLs
-  and payloads. We'd train byte-pair encoding (BPE) on HTTP corpus, OR
-  use character-level. Read Karpathy's `minbpe` repo.
-- **Perplexity as anomaly score:** language model assigns low
-  probability to OOD strings → high perplexity → anomaly.
-- **Distillation / tiny BERTs:** TinyBERT, DistilBERT — we can't train
-  BERT-base on Colab free tier; must go small.
-
-### Tier 3 — domain knowledge (1 week, parallel with Tier 2)
-
-A WAF paper reviewed by a security venue needs security depth.
-
-- **OWASP Top 10 2021** — know all ten, especially A03 Injection +
-  A07 ID&Auth failures.
-- **OWASP CRS v4 architecture:** paranoia levels, anomaly scoring, the
-  request/response inspection phases (1-5).
-- **Attack classes in our 141-payload battery (19 classes):** SQLi
-  (union, error, blind, time-based), XSS (reflected, stored, DOM),
-  CSRF, SSRF, RCE, LFI/RFI, LDAP injection, XXE, SSTI, deserialisation,
-  scanner UAs, XFF spoofing. Own each.
-- **Evasion techniques:** URL encoding (single/double), HTML entity
-  encoding, comment injection (`/**/`), case manipulation, NULL byte
-  injection, HPP (HTTP parameter pollution), chunked encoding tricks.
-- **Existing WAF research:** read 5 papers minimum
-  - ModSec-AdvLearn (Demetrio et al.) — adversarial training for WAF
-  - Robust-WAF / DeepWAF surveys
-  - "An Anomaly-Based Web Application Firewall" (Pałka et al.)
-  - HTTP2vec / Request2Vec papers
-  - any recent (2023-2025) WAF + LLM paper
-
-Find them: Google Scholar `"web application firewall" machine
-learning` sorted by year. Read related-work sections of two recent
-papers to map the field fast.
-
-### Tier 4 — research craft (ongoing, ~1 week to set up)
-
-- **How to read a paper fast:** S. Keshav's "How to Read a Paper"
-  (3 pages, life-changing).
-- **Reproducibility checklist:** NeurIPS / ACM checklists — our
-  `bench/` harness must satisfy these.
-- **Experimental hygiene:** train/val/test split, hyperparameter search
-  vs test leakage, fixed random seeds, multiple runs with confidence
-  intervals (not single numbers).
-- **Plotting:** matplotlib basics. Publication-quality figures (label
-  axes, legible at 50% size).
-- **Paper structure:** abstract → intro → related work → method →
-  evaluation → discussion → conclusion. Read 3 papers from our target
-  venue (RAID, DIMVA, ACSAC).
-- **LaTeX:** Overleaf is fine. Don't write the paper in Word.
-- **Citation tooling:** Zotero or BibTeX. Track every paper from day 1.
-
-### Tier 5 — only if we pick B2 (HTTP-BERT)
-
-- PyTorch (we use Keras; B2 is easier in PyTorch + HuggingFace).
-- HuggingFace `datasets` + `transformers` + `tokenizers`.
-- Colab GPU notebook discipline: save checkpoints to Drive, never
-  trust the runtime to persist.
-- Mixed-precision training (fp16) — Colab T4 has limited VRAM.
+- URL encoding (single, double, mixed-case `%2E%2E`)
+- HTML entity encoding (`&#x27;`, `&apos;`)
+- Comment injection (`UNION/**/SELECT`)
+- Case manipulation (`UnIoN SeLeCt`)
+- NULL byte injection (`%00`)
+- Unicode normalisation tricks
+- Chunked encoding splits
+- Whitespace alternates (`%09`, `%0a`, `+`)
 
 ---
 
-## Part 4 — suggested 6-week schedule
+## 3. Web Application Firewalls
+
+- **What a WAF actually does** ★★ — request inspection point,
+  decisions, modes (detection / blocking / safe).
+- **Rule-based vs anomaly-based vs hybrid** ★★ — trade-offs of each.
+- **ModSecurity** ★★ — directives (`SecRule`, `SecAction`,
+  `SecRuleEngine`), variables (`ARGS`, `REQUEST_URI`, `REQUEST_HEADERS`),
+  transformations (`t:lowercase`, `t:urlDecodeUni`), actions (`block`,
+  `pass`, `drop`, `deny`), phases 1–5.
+- **Coraza** ★ — Go-native ModSecurity v3 fork; engine reload API.
+- **OWASP Core Rule Set (CRS) v4** ★★ — paranoia levels (1–4),
+  anomaly scoring, inbound/outbound thresholds, rule numbering
+  conventions (9xxxxx for CRS, custom rule bands).
+- **False positives in WAFs** ★★ — why paranoia level 1 is default,
+  the cost of blocking legitimate traffic.
+- **Threat intelligence feeds** ★ — Spamhaus DROP/EDROP, MISP, OTX —
+  what they list, refresh cadence.
+
+---
+
+## 4. Linear algebra (math floor)
+
+- **Vectors and dot products** ★★ — geometric interpretation,
+  cosine similarity.
+- **Matrix multiplication** ★★ — dimensions, why order matters.
+- **Eigenvectors and eigenvalues** ★ — intuition only; PCA depends on it.
+- **Norms** ★★ — L1, L2, L∞; when to use each.
+
+Resource: 3Blue1Brown *Essence of Linear Algebra* (YouTube series).
+
+---
+
+## 5. Probability + statistics
+
+- **Random variables, expectation, variance** ★★
+- **Gaussian / normal distribution** ★★ — z-scores, why so common.
+- **Conditional probability + Bayes rule** ★★
+- **Maximum likelihood estimation** ★ — what training a model
+  actually optimises.
+- **Hypothesis testing basics** ★ — p-values, type I / II errors.
+- **McNemar's test** ★★ — paired classifier comparison, what we use
+  to say "model A beats model B".
+- **Bootstrap confidence intervals** ★★ — reporting metric ± CI
+  instead of single numbers.
+
+---
+
+## 6. Information theory
+
+- **Shannon entropy** ★★★ — definition, max entropy uniform, low
+  entropy = predictable. Used directly in feature extraction.
+- **Cross-entropy** ★★ — relation to log-likelihood, classification
+  loss.
+- **KL divergence** ★ — distance between distributions; appears in VAE.
+- **N-gram entropy** ★★ — entropy over substrings of length n; how
+  it detects unusual character sequences.
+
+---
+
+## 7. Calculus for ML
+
+- **Partial derivatives + chain rule** ★★
+- **Gradient + gradient descent** ★★★ — step size, why it converges
+  for convex losses, why deep nets are non-convex.
+- **Backpropagation intuition** ★★ — you don't need to derive it, but
+  you must explain what it computes.
+- **Optimisers** ★★ — SGD, Momentum, Adam — when to use which.
+
+---
+
+## 8. Neural networks basics
+
+- **Perceptron, MLP, activation functions** ★★ — sigmoid, tanh, ReLU,
+  LeakyReLU, why ReLU is the default.
+- **Forward pass + loss + backward pass** ★★★
+- **Loss functions** ★★ — MSE for regression, cross-entropy for
+  classification, custom losses.
+- **Regularisation** ★★ — L1, L2, dropout, early stopping, batch
+  normalisation.
+- **Overfitting vs underfitting** ★★★ — bias-variance trade-off,
+  train/val/test split discipline.
+- **Hyperparameters** ★★ — learning rate, batch size, epoch count,
+  hidden width / depth — how each affects training.
+
+---
+
+## 9. Autoencoders (the core of M4)
+
+- **Vanilla AE** ★★★ — encoder → bottleneck → decoder; reconstruction
+  loss; why bottleneck must be narrower than input.
+- **Denoising AE, sparse AE, contractive AE** ★★ — when to use each.
+- **Anomaly detection with AE** ★★★ — train on benign only;
+  reconstruction error threshold; why this works (and when it doesn't).
+- **Failure modes** ★★★ — bottleneck too wide → learns identity;
+  AE generalises too well → reconstructs attacks fine; class imbalance
+  in training data.
+- **Variational autoencoder (VAE)** ★ — probabilistic bottleneck,
+  KL term in loss.
+
+---
+
+## 10. Clustering
+
+- **K-means** ★★ — algorithm, must pick k, fails on non-globular
+  clusters.
+- **DBSCAN** ★★ — density-based, `eps` + `min_samples`, finds outliers.
+- **HDBSCAN** ★★★ — hierarchical DBSCAN, no `eps` parameter, cluster
+  stability, mutual reachability distance, condensed tree, why label
+  `-1` means outlier.
+- **Silhouette score** ★ — measuring cluster quality.
+
+---
+
+## 11. Frequent pattern mining
+
+- **Transactions, itemsets, support, confidence, lift** ★★★ —
+  definitions and how to compute by hand on a small example.
+- **Apriori algorithm** ★★ — candidate generation + pruning.
+- **FP-Growth** ★★★ — FP-tree construction, conditional pattern bases,
+  why it beats Apriori (no candidate explosion).
+- **Mapping non-transactional data to itemsets** ★★ — how categorical
+  + binned numeric features become items.
+
+---
+
+## 12. Ensembles + consensus
+
+- **Why ensembles work** ★★ — bias-variance reduction; uncorrelated
+  errors cancel.
+- **Voting schemes** ★★★ — hard voting (majority), soft voting
+  (weighted probability), strict (all-must-agree).
+- **Bagging vs boosting vs stacking** ★ — names and one-line
+  differences.
+- **Calibration** ★ — when raw model scores aren't probabilities;
+  Platt scaling, isotonic regression.
+
+---
+
+## 13. Evaluation metrics
+
+- **Confusion matrix** ★★★ — TP, FP, TN, FN; sketch from memory.
+- **Accuracy** ★★ — why it's misleading on imbalanced data.
+- **Precision, recall, F1** ★★★
+- **False positive rate (FPR), true positive rate (TPR)** ★★★
+- **ROC curve + AUC** ★★ — interpretation, when it's misleading.
+- **Precision-recall curve + PR-AUC** ★★★ — why this matters more on
+  imbalanced data (and WAF traffic is 99 %+ benign).
+- **Latency metrics** ★★ — p50, p95, p99; why p95 matters more than
+  mean.
+- **Throughput** ★ — requests/sec, how to measure honestly.
+
+---
+
+## 14. Contrastive learning (only if we go ML-novelty)
+
+- **Self-supervised vs supervised contrastive** ★★
+- **SimCLR** ★ — augmentations, NT-Xent loss, batch size effects.
+- **Supervised contrastive loss (SupCon)** ★★ — label-aware positives
+  and negatives.
+- **Triplet loss** ★ — anchor / positive / negative formulation.
+- **Embedding-space anomaly detection** ★★ — distance to centroid
+  instead of reconstruction error.
+
+Reference paper: Khosla et al. 2020 *Supervised Contrastive Learning*.
+
+---
+
+## 15. Transformers + language modelling (only if HTTP-BERT route)
+
+- **Self-attention** ★★★ — query/key/value, softmax, scaling.
+- **Multi-head attention** ★★ — why multiple heads.
+- **Positional encoding** ★★ — sinusoidal vs learned.
+- **Encoder vs decoder vs encoder-decoder** ★★
+- **BERT** ★★ — MLM objective, [CLS], [MASK], WordPiece tokens.
+- **Tokenisation** ★★ — byte-pair encoding (BPE), why off-the-shelf
+  tokenisers fail on URLs.
+- **Perplexity** ★★ — language model probability; using perplexity as
+  an anomaly score.
+- **Distillation** ★ — TinyBERT, DistilBERT for CPU/Colab budgets.
+
+Resources: Jay Alammar *Illustrated Transformer*; Karpathy
+*Neural Networks: Zero to Hero* YouTube series; Devlin et al. 2018 BERT
+paper.
+
+---
+
+## 16. Adversarial ML basics
+
+- **FGSM, PGD** ★ — gradient-based pixel perturbation (image-domain).
+- **Adversarial in WAF context** ★★★ — *not* pixel noise; it's payload
+  obfuscation (encoding, comments, case, whitespace). Different attack
+  surface.
+- **Adversarial training** ★ — augmenting training data with mutated
+  payloads; trade-off with benign accuracy.
+
+---
+
+## 17. Software stack — Python ML
+
+- **NumPy** ★★★ — arrays, broadcasting, vectorised ops.
+- **Pandas** ★★ — DataFrame, groupby, joins.
+- **scikit-learn** ★★ — fit/predict API, pipelines, cross-validation.
+- **Keras / TensorFlow** ★★ — Sequential vs functional API, training
+  loop, callbacks, saving/loading models.
+- **PyTorch** ★ — alternative to Keras; required only if going the
+  Transformer route.
+- **HuggingFace Transformers + datasets + tokenizers** ★ — same
+  caveat.
+- **mlxtend** ★ — where our FP-Growth implementation comes from.
+- **hdbscan** Python package ★★ — fit, `labels_`, `outlier_scores_`.
+- **FastAPI** ★★ — routes, dependency injection, OpenAPI docs.
+- **pydantic** ★★ — request/response schema validation.
+- **pyotp** ★ — TOTP code generation and verification.
+- **bcrypt** ★ — password hashing, work factor.
+
+---
+
+## 18. Software stack — Go (proxy)
+
+- **Go basics** ★★ — packages, goroutines, channels, error handling,
+  context.
+- **net/http** ★★ — server, handler, middleware pattern.
+- **httputil.ReverseProxy** ★ — how the standard library handles
+  proxying.
+- **Coraza API** ★ — engine load, request inspection, reload.
+- **atomic primitives** ★ — `atomic.Bool`, `atomic.Value` for shared
+  state without mutexes.
+
+---
+
+## 19. Infrastructure
+
+- **Docker** ★★ — image vs container, layers, Dockerfile directives,
+  build cache.
+- **docker-compose** ★★ — services, networks, volumes (named vs bind),
+  environment, healthchecks.
+- **MongoDB** ★★ — collections, documents, indexes, TTL indexes,
+  aggregation pipeline basics.
+- **Redis** ★ — when it's useful (caching, rate limiting); we don't
+  use it but you'll be asked why not.
+- **JWT** ★★★ — header.payload.signature, HS256 vs RS256, expiry,
+  claims (iss, sub, exp, role).
+- **TOTP** ★★ — RFC 6238, shared secret, 30-second window, drift
+  tolerance.
+- **RBAC** ★★ — roles, permissions, role hierarchies, principle of
+  least privilege.
+- **CEF (Common Event Format)** ★ — ArcSight format, syslog facility /
+  severity.
+
+---
+
+## 20. LLM API integration
+
+- **Prompting basics** ★★ — system vs user message, few-shot, JSON
+  mode.
+- **Rate limits + retries** ★ — exponential back-off.
+- **Free-tier providers** ★ — Gemini Flash, OpenRouter free models,
+  Groq.
+- **Security risks of LLM-in-the-loop** ★★ — prompt injection,
+  jailbreaks, hallucinated output that becomes a SecRule.
+
+---
+
+## 21. Research craft
+
+- **How to read a paper fast** ★★ — three-pass method (Keshav).
+- **Reproducibility** ★★ — fixed seeds, environment lock files,
+  multiple runs.
+- **Train/val/test discipline** ★★★ — never tune on test, no leakage.
+- **Plotting** ★★ — matplotlib, label axes, units, legible at 50 %
+  size.
+- **LaTeX** ★ — Overleaf; figures, tables, citations, algorithm
+  environment.
+- **Reference management** ★ — Zotero or BibTeX from day one.
+
+---
+
+## 22. Suggested order
 
 | Week | Focus |
 |---|---|
-| 1 | Tier 0 math + Tier 1 (AE + HDBSCAN) |
-| 2 | Tier 1 (FP-Growth + consensus). All repo-specific theory done. |
-| 3 | Tier 2 metrics + statistical tests + Tier 3 OWASP/CRS depth |
-| 4 | Tier 2 contrastive learning (B1) OR Transformers (B2). **Pick now.** |
-| 5 | Tier 3 read 5 WAF papers + Tier 4 paper-craft + start `bench/` harness |
-| 6 | Implementation on chosen B path; first experiments running |
-
-After week 6 you're running baseline experiments + reading related work
-in parallel. Writing starts week 8-10.
+| 1 | §1 web + §2 OWASP + §3 WAF concepts |
+| 2 | §4–§7 math floor (linear algebra, prob, info theory, calc) |
+| 3 | §8 NN basics + §9 autoencoders + §10 clustering |
+| 4 | §11 FP-Growth + §12 ensembles + §13 metrics |
+| 5 | §17–§19 software stack + §20 LLM + §21 research craft |
+| 6 | §14 contrastive OR §15 Transformers (whichever paper path) + §16 adversarial |
 
 ---
 
-## Part 5 — resources, ranked
+## 23. Self-test (do this before viva)
+
+If you can't answer any of these without notes, go back to that section.
+
+- [ ] Walk through what happens to an HTTP request from client to
+      response, naming every component it passes through.
+- [ ] Define TLS handshake steps and explain SNI.
+- [ ] Name all 10 OWASP Top 10 categories with one example each.
+- [ ] Write a SQL injection payload that bypasses a naive `'`-strip filter.
+- [ ] Explain a `SecRule` line and what each token means.
+- [ ] Define Shannon entropy and compute it on a 4-character string.
+- [ ] Whiteboard an autoencoder, the loss, and one failure mode.
+- [ ] Explain HDBSCAN in three sentences without saying "DBSCAN".
+- [ ] Define support, confidence, lift; compute them on a 5-transaction
+      example.
+- [ ] Sketch a confusion matrix and derive precision, recall, F1, FPR.
+- [ ] State when PR-AUC matters more than ROC-AUC and why.
+- [ ] Explain why JWT signatures matter and what HS256 means.
+- [ ] Describe TOTP in three sentences.
+- [ ] Explain contrastive loss in one sentence (if pursuing it).
+- [ ] Explain MLM + perplexity-as-anomaly (if pursuing Transformer path).
+- [ ] Describe McNemar's test and when to use it.
+
+---
+
+## 24. Resources, ranked
 
 **Books (skim, don't grind):**
 1. Goodfellow, Bengio, Courville — *Deep Learning* (free online).
-   Ch 1-5, 14, 17.
+   Chapters 1–5, 14, 17.
 2. Murphy — *Probabilistic Machine Learning: An Introduction*
-   (free PDF). For probability + linear algebra refreshers.
+   (free PDF) for probability + linear algebra refreshers.
+3. Stuttard & Pinto — *The Web Application Hacker's Handbook* (2nd
+   ed.) for attack-class depth.
 
 **Courses:**
-1. Andrew Ng *Deep Learning Specialization* — only Course 1 + 2.
-2. fast.ai *Practical Deep Learning* — Lesson 1-4. Faster than Ng for
-   builders.
+1. Andrew Ng — *Deep Learning Specialization*, Courses 1 + 2 only.
+2. fast.ai — *Practical Deep Learning*, Lessons 1–4.
+3. PortSwigger Web Security Academy (free, hands-on) for OWASP work.
 
 **YouTube:**
-- 3Blue1Brown — linear algebra + neural networks series.
-- StatQuest (Josh Starmer) — stats + ML intuition. Excellent.
+- 3Blue1Brown — linear algebra + neural networks.
+- StatQuest (Josh Starmer) — stats + ML intuition.
 - Yannic Kilcher — paper walkthroughs.
+- Andrej Karpathy — *Neural Networks: Zero to Hero*.
 
-**Papers (must-read, in order):**
-1. Vincent et al. 2008 — Denoising autoencoders (foundation of M4)
-2. Campello et al. 2013 — HDBSCAN
-3. Han et al. 2000 — FP-Growth
-4. Khosla et al. 2020 — Supervised Contrastive Learning (B1 critical)
-5. Chen et al. 2020 — SimCLR (B1 context)
-6. Devlin et al. 2018 — BERT (skim if Path A only)
-7. Any 2-3 recent WAF-ML papers from our target venue
-
-**Hands-on:**
-- Karpathy's "Neural Networks: Zero to Hero" YouTube series. Build a
-  tiny GPT from scratch. Best 10 hours for Transformer intuition.
-- Re-implement the AE in `ml/training/train_autoencoder.py` from
-  scratch in a notebook. If you can't, you don't understand it yet.
-
----
-
-## Part 6 — self-test (do this before viva)
-
-Can you, without notes:
-
-- [ ] Explain LatentGuard's 3-layer pipeline end-to-end?
-- [ ] Name the 11 SRS modules and what each does?
-- [ ] Whiteboard the AE architecture + forward pass + loss?
-- [ ] Explain why bottleneck width matters; what happens if too wide?
-- [ ] Explain why HDBSCAN finds outliers but k-means doesn't?
-- [ ] State support / confidence / lift definitions; which we threshold on?
-- [ ] Define precision, recall, F1, FPR, TPR from a confusion matrix?
-- [ ] Explain why PR-AUC > ROC-AUC for imbalanced data?
-- [ ] Justify our 4-dim bottleneck (or admit it's heuristic)?
-- [ ] Defend the 27% CSIC TPR honestly without flinching?
-- [ ] Explain Path A vs Path B1 in two sentences each?
-- [ ] Explain contrastive loss in one sentence (if pursuing B1)?
-- [ ] Explain MLM + perplexity-as-anomaly (if pursuing B2)?
-- [ ] Name 5 evasion techniques and what defence catches each?
-- [ ] Cite 3 prior WAF-ML papers and what they got wrong / right?
-
-If any "no" — back to that tier.
-
----
-
-## Part 7 — what NOT to study (yet)
-
-Time-wasters at this stage:
-- Reinforcement learning
-- Diffusion models / image generation
-- LLM fine-tuning frameworks (we're calling Gemini API, not training)
-- Graph neural networks
-- AutoML platforms
-
-Stay focused. Six weeks is tight.
-
----
-
-## Where to look in the repo
-
-- `CLAUDE.md` — orientation for any new contributor
-- `docs/architecture.md` — full data flow + repo layout
-- `docs/roadmap.md` — phase plan + honest gaps
-- `docs/gotchas.md` — 42 landmines tagged by area
-- `docs/verified-states.md` — what's currently working with metrics
-- `todo.md` — backlog including the research-paper roadmap (Path A/B)
-- `fyp-documents/` — official SRS + SDS markdown
-- `ml/app/` — every Python module of the ML service
-- `proxy/internal/` — every Go package of the reverse proxy
+**Papers (in suggested reading order):**
+1. Vincent et al. 2008 — Denoising Autoencoders.
+2. Campello et al. 2013 — HDBSCAN.
+3. Han et al. 2000 — FP-Growth.
+4. Dietterich 2000 — Ensemble Methods (short survey).
+5. Khosla et al. 2020 — Supervised Contrastive Learning.
+6. Chen et al. 2020 — SimCLR.
+7. Devlin et al. 2018 — BERT.
+8. Two recent WAF + ML papers from a target venue.
